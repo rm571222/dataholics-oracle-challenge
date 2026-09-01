@@ -392,10 +392,11 @@ with col_c:
 # ============================================================
 # Seção 2 — Pressão Assistencial (BORBOLETA: região no CENTRO)
 # ============================================================
-st.header("Pressão Assistencial")
-st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações, "
-           "com a quantidade de leitos SUS da região na extremidade esquerda; à direita, a pressão sobre "
-           "a estrutura (internações por leito), com a taxa média de ocupação de leitos na extremidade direita.")
+st.header("Pressão Assistencial — Ocupação de Leitos SUS")
+st.caption("Regiões ordenadas pela **taxa de ocupação de leitos SUS** (métrica-chave). À esquerda, o volume "
+           "de internações e os leitos SUS da região; ao centro, o nome; à direita, a ocupação (barra), "
+           "com a pressão (internações por leito) como referência secundária. "
+           "Regiões com forte rede privada tendem a esconder a pressão real sobre o SUS.")
 
 capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
 # Fallback: se a view ainda não tiver TAXA_OCUPACAO, calcula no app (base SUS).
@@ -413,14 +414,15 @@ if 'TAXA_OCUPACAO' not in capacidade_completa.columns:
         / (capacidade_completa['LEITOS_REGIAO'] * _dias_periodo) * 100
     ).round(1)
 
-q_hi = capacidade_completa['INTERNACOES_POR_LEITO'].quantile(0.66)
-q_lo = capacidade_completa['INTERNACOES_POR_LEITO'].quantile(0.33)
+# Status por LIMIARES ABSOLUTOS de ocupação (benchmarks de gestão hospitalar):
+#   >= 100% sobre-capacidade (Crítico) · 85-100% acima do limite seguro (Atenção) · < 85% (Estável)
+OCUP_CRITICO = 100.0
+OCUP_ATENCAO = 85.0
 def _status(v):
-    if v >= q_hi: return "Crítico"
-    if v >= q_lo: return "Atenção"
+    if v >= OCUP_CRITICO: return "Crítico"
+    if v >= OCUP_ATENCAO: return "Atenção"
     return "Estável"
-capacidade_completa['status'] = capacidade_completa['INTERNACOES_POR_LEITO'].apply(_status)
-mediana_pressao = capacidade_completa['INTERNACOES_POR_LEITO'].median()
+capacidade_completa['status'] = capacidade_completa['TAXA_OCUPACAO'].apply(_status)
 
 n_critico = int((capacidade_completa['status'] == "Crítico").sum())
 n_atencao = int((capacidade_completa['status'] == "Atenção").sum())
@@ -438,23 +440,35 @@ def card_status(cor, emoji, titulo, valor, total):
         f"</div>"
     )
 
+def card_status2(cor, emoji, titulo, valor, total, criterio):
+    pct = valor / total * 100 if total else 0
+    return (
+        f"<div style='background:#1C1F26; border-left:5px solid {cor}; border-radius:10px; "
+        f"padding:14px 18px;'>"
+        f"<div style='color:#AAB4BF; font-size:0.85rem;'>{emoji} {titulo}</div>"
+        f"<div style='font-size:2rem; font-weight:700; color:#FFFFFF; line-height:1.1;'>{fmt_num(valor)}</div>"
+        f"<div style='color:{cor}; font-size:0.85rem;'>{fmt_num(pct,1)}% das regiões · {criterio}</div>"
+        f"</div>"
+    )
+
 sc1, sc2, sc3 = st.columns(3)
-sc1.markdown(card_status(COR_STATUS["Crítico"], "🔴", "Regiões em estado Crítico", n_critico, n_total),
-             unsafe_allow_html=True)
-sc2.markdown(card_status(COR_STATUS["Atenção"], "🟡", "Regiões em Atenção", n_atencao, n_total),
-             unsafe_allow_html=True)
-sc3.markdown(card_status(COR_STATUS["Estável"], "🟢", "Regiões Estáveis", n_estavel, n_total),
-             unsafe_allow_html=True)
+sc1.markdown(card_status2(COR_STATUS["Crítico"], "🔴", "Regiões em estado Crítico",
+                          n_critico, n_total, "ocupação ≥ 100%"), unsafe_allow_html=True)
+sc2.markdown(card_status2(COR_STATUS["Atenção"], "🟡", "Regiões em Atenção",
+                          n_atencao, n_total, "ocupação 85–100%"), unsafe_allow_html=True)
+sc3.markdown(card_status2(COR_STATUS["Estável"], "🟢", "Regiões Estáveis",
+                          n_estavel, n_total, "ocupação < 85%"), unsafe_allow_html=True)
 st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
 
-borb = capacidade_completa.sort_values('INTERNACOES_POR_LEITO', ascending=True).copy()
+# Ordena por TAXA DE OCUPAÇÃO (métrica-chave) — asc p/ maior ocupação no topo
+borb = capacidade_completa.sort_values('TAXA_OCUPACAO', ascending=True).copy()
 cores = borb['status'].map(COR_STATUS).tolist()
 altura_borboleta = max(650, len(borb) * 22)
 
 fig_borb = make_subplots(
     rows=1, cols=3, shared_yaxes=True, horizontal_spacing=0.0,
     column_widths=[0.42, 0.16, 0.42],
-    subplot_titles=("Internações (volume)", "", "Internações por leito (pressão)")
+    subplot_titles=("Internações (volume)", "", "Taxa de ocupação de leitos SUS (%)")
 )
 fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
@@ -487,23 +501,24 @@ fig_borb.add_trace(
                hoverinfo="skip", showlegend=False),
     row=1, col=2
 )
+# Barra da direita = TAXA DE OCUPAÇÃO (métrica-chave), colorida por status
 fig_borb.add_trace(
-    go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES_POR_LEITO'], orientation='h',
-           marker_color=cores, name="Pressão",
-           text=[fmt_num(v, 1) for v in borb['INTERNACOES_POR_LEITO']],
+    go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['TAXA_OCUPACAO'], orientation='h',
+           marker_color=cores, name="Ocupação",
+           text=[f"{fmt_num(v,1)}%" for v in borb['TAXA_OCUPACAO']],
            textposition="outside", cliponaxis=False,
            customdata=borb['NM_REGIAO_SAUDE'],
-           hovertemplate="<b>%{customdata}</b><br>Internações/leito: %{x:,.1f}<extra></extra>"),
+           hovertemplate="<b>%{customdata}</b><br>Ocupação: %{x:,.1f}%<extra></extra>"),
     row=1, col=3
 )
-# Taxa de ocupação na EXTREMIDADE DIREITA (espelha os "leitos" da esquerda)
-_pres_max = float(borb['INTERNACOES_POR_LEITO'].max())
-_pres_outer = _pres_max * 1.6           # headroom p/ o texto de ocupação
-_x_ocup = _pres_outer * 0.97
+# Pressão (internações/leito) como label secundário na extremidade direita
+_ocup_max = float(borb['TAXA_OCUPACAO'].max())
+_ocup_outer = _ocup_max * 1.45          # headroom p/ o texto da pressão
+_x_pres = _ocup_outer * 0.99
 fig_borb.add_trace(
-    go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_ocup] * len(borb), mode="text",
-               text=[f"{fmt_num(v,1)}% ocup." for v in borb['TAXA_OCUPACAO']],
-               textposition="middle left", textfont=dict(size=10, color="#AAB4BF"),
+    go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_pres] * len(borb), mode="text",
+               text=[f"{fmt_num(v,1)} int./leito" for v in borb['INTERNACOES_POR_LEITO']],
+               textposition="middle left", textfont=dict(size=9, color="#8A929B"),
                hoverinfo="skip", showlegend=False),
     row=1, col=3
 )
@@ -511,14 +526,18 @@ fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
 fig_borb.update_xaxes(visible=False, row=1, col=2)
-fig_borb.update_xaxes(showticklabels=False, range=[0, _pres_outer], row=1, col=3)
-fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
-                   annotation_text=f"Mediana: {fmt_num(mediana_pressao,1)}",
-                   annotation_position="bottom right", row=1, col=3)
+fig_borb.update_xaxes(showticklabels=False, range=[0, _ocup_outer], row=1, col=3)
+# Linhas de referência: 85% (limite seguro) e 100% (sobre-capacidade)
+fig_borb.add_vline(x=OCUP_ATENCAO, line_dash='dot', line_color='#F5A623',
+                   annotation_text="85% (limite seguro)", annotation_position="top",
+                   annotation_font_size=9, row=1, col=3)
+fig_borb.add_vline(x=OCUP_CRITICO, line_dash='dash', line_color='#E74C3C',
+                   annotation_text="100% (sobre-capacidade)", annotation_position="top",
+                   annotation_font_size=9, row=1, col=3)
 aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
 fig_borb.update_layout(bargap=0.25)
 for ann in fig_borb.layout.annotations:
-    if ann.text in ("Internações (volume)", "Internações por leito (pressão)"):
+    if ann.text in ("Internações (volume)", "Taxa de ocupação de leitos SUS (%)"):
         ann.yshift = 10
 st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
 
