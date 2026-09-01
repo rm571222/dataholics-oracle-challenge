@@ -15,8 +15,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- Constantes de layout/tema (fonte única de verdade) --------------------
-CHART_HEIGHT = 380          # altura padrão de TODOS os gráficos
+CHART_HEIGHT = 380
 CHART_HEIGHT_LG = 460
 MARGEM_PADRAO = dict(l=10, r=30, t=30, b=10)
 
@@ -93,7 +92,6 @@ def simplificar_causa(texto):
     t = str(texto).strip()
     if t.lower() in ("nan", "none", "null", ""):
         return "Não informado"
-    # remove ", não especificado como ...", "de localização não especificada", etc.
     t = re.sub(r",?\s*(de\s+\w+\s+)?n[ãa]o\s+especificad[oa].*$", "", t, flags=re.IGNORECASE)
     t = t.strip(" ,;")
     return t if t else "Não informado"
@@ -101,7 +99,6 @@ def simplificar_causa(texto):
 
 # ============================================================
 # TEMA ÚNICO DOS GRÁFICOS
-# (Não definimos 'title' aqui: title sem 'text' gerava "undefined".)
 # ============================================================
 def aplicar_tema(fig, altura=CHART_HEIGHT, mostrar_legenda=True):
     fig.update_layout(
@@ -160,8 +157,7 @@ st.caption(f"FIAP Challenge | Parceria Oracle — Dados SIH/DATASUS, {ini_str} a
 st.header("Seção 1 — Visão Executiva")
 
 # ============================================================
-# KPIs: Total | 12 meses | YTD | Último mês
-# delta_color="inverse": para internações, MENOS é positivo (verde)
+# KPIs
 # ============================================================
 total_geral = consultar("SELECT total_internacoes FROM VW_KPIS_GERAIS")['TOTAL_INTERNACOES'][0]
 
@@ -221,8 +217,6 @@ col4.metric(f"Último Mês ({fim_str})", fmt_num(mes_atual),
 
 # ============================================================
 # Evolução mensal — 2 painéis empilhados (X compartilhado)
-#   • Cima : Total Geral (linha única, rótulos, sem eixo Y, label no fim da linha)
-#   • Baixo: Top 5 regiões — POSIÇÃO em log, mas RÓTULOS do eixo em volume (10k, 20k...)
 # ============================================================
 st.subheader("📈 Evolução Mensal de Internações")
 st.caption("Painel superior: total do estado de SP. Painel inferior: as 5 regiões de maior volume — "
@@ -250,7 +244,7 @@ fig_evolucao = make_subplots(
     rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
     row_heights=[0.22, 0.78], subplot_titles=("", "Top 5 Regiões")
 )
-# Painel superior: Total (linha única, sem eixo Y, com rótulos e label no fim)
+# Painel superior: Total (linha única, sem eixo Y, rótulos por ponto + nome/valor no fim)
 rotulos_total = [fmt_compacto(v) for v in temporal_total['QTD_INTERNACOES']]
 fig_evolucao.add_trace(
     go.Scatter(x=temporal_total['competencia'], y=temporal_total['QTD_INTERNACOES'],
@@ -261,24 +255,20 @@ fig_evolucao.add_trace(
                hovertemplate="Total: %{y:,.0f}<extra></extra>", showlegend=False),
     row=1, col=1
 )
-# Rótulo "Total Geral" no FIM da linha (em vez de título/legenda que ficavam apertados)
 _ult_x = temporal_total['competencia'].iloc[-1]
 _ult_y = temporal_total['QTD_INTERNACOES'].iloc[-1]
-fig_evolucao.add_annotation(row=1, col=1, x=_ult_x, y=_ult_y,
-                            text=f"  Total Geral — {fmt_compacto(_ult_y)}",
-                            showarrow=False, xanchor="left", font=dict(color="#FFFFFF", size=12))
+fig_evolucao.add_trace(
+    go.Scatter(x=[_ult_x + pd.Timedelta(days=8)], y=[_ult_y], mode="text",
+               text=[f"Total Geral — {fmt_compacto(_ult_y)}"], textposition="middle right",
+               textfont=dict(color="#FFFFFF", size=12), cliponaxis=False,
+               hoverinfo="skip", showlegend=False),
+    row=1, col=1
+)
 
-# Painel inferior: Top 5 regiões — linha limpa; rótulo SÓ no último ponto + nome ao lado.
-# Pequeno desencontro vertical p/ nomes que se cruzam na faixa baixa (evita sobreposição).
+# Painel inferior: Top 5 — linhas limpas; rótulo só no último ponto + nome ao lado.
+# Desencontro vertical p/ nomes que se cruzam: verde acima, vermelho meio, roxo abaixo.
 _ult_x_reg = piv.index[-1]
-# Fator multiplicativo (eixo log) p/ separar rótulos que se cruzam na faixa baixa.
-# Ordem natural das linhas no fim: Grande ABC ≈ Alto do Tietê (11k) > Rota (9k).
-#   verde um pouco acima, vermelho no meio, roxo abaixo.
-_desloca_y = {
-    "GRANDE ABC": 1.15,            # verde: sobe um pouco p/ não colar no vermelho
-    "ALTO DO TIETE": 0.98,         # vermelho: fica no meio
-    "ROTA DOS BANDEIRANTES": 0.82, # roxo: desce (é o menor volume)
-}
+_desloca_y = {"GRANDE ABC": 1.15, "ALTO DO TIETE": 0.98, "ROTA DOS BANDEIRANTES": 0.82}
 for i, nome in enumerate(top5_regioes):
     if nome in piv.columns:
         cor = PALETA[i % len(PALETA)]
@@ -289,32 +279,33 @@ for i, nome in enumerate(top5_regioes):
                        hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
             row=2, col=1
         )
-        # Nome + valor do último ponto, no fim da linha, na cor da série
+        # Nome + valor no fim; cliponaxis=False deixa transbordar p/ a margem (não corta)
         y_label = ult_valor * _desloca_y.get(nome.upper(), 1.0)
         fig_evolucao.add_trace(
-            go.Scatter(x=[_ult_x_reg + pd.Timedelta(days=12)], y=[y_label],
-                       mode="text", text=[f"{truncar(nome, 24)} — {fmt_compacto(ult_valor)}"],
-                       textposition="middle right", textfont=dict(color=cor, size=11),
+            go.Scatter(x=[_ult_x_reg + pd.Timedelta(days=8)], y=[y_label], mode="text",
+                       text=[f"{nome} — {fmt_compacto(ult_valor)}"], textposition="middle right",
+                       textfont=dict(color=cor, size=11), cliponaxis=False,
                        hoverinfo="skip", showlegend=False),
             row=2, col=1
         )
+
 fig_evolucao.update_yaxes(visible=False, showgrid=False, row=1, col=1)
-# Eixo em log, mas mostrando volumes (a cada 10k) — sem expor "log"
 _ticks = [10000, 20000, 30000, 40000, 50000, 60000, 70000]
 fig_evolucao.update_yaxes(
     type="log", title_text="Internações", row=2, col=1,
     tickmode="array", tickvals=_ticks, ticktext=[fmt_compacto(v) for v in _ticks]
 )
-# Espaço à direita p/ caber "NOME — valor" no fim das linhas (nomes longos),
-# mas travando os ticks até o último mês real (não mostra jan/2027).
+# Pequeno respiro interno (só p/ afastar os textos da última coluna de dados) +
+# margem direita ampla p/ os rótulos transbordarem sem cortar "Campinas".
 _ticks_x = pd.date_range(start=piv.index.min(), end=piv.index.max(), freq="3MS")
 fig_evolucao.update_xaxes(
-    range=[piv.index.min(), piv.index.max() + pd.Timedelta(days=300)],
+    range=[piv.index.min(), piv.index.max() + pd.Timedelta(days=20)],
     tickmode="array", tickvals=_ticks_x,
     ticktext=[d.strftime("%b %Y") for d in _ticks_x], row=2, col=1
 )
-aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)  # legenda de cima removida
-fig_evolucao.update_layout(hovermode="x unified")
+aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)
+fig_evolucao.update_layout(hovermode="x unified",
+                           margin=dict(l=10, r=230, t=30, b=10))  # r alto = espaço p/ nomes
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
 # ============================================================
@@ -338,7 +329,6 @@ with col_b:
         SELECT ds_diagnostico, qtd FROM VW_TOP_DIAGNOSTICOS
         ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD')
-    # nan -> "Não informado" e simplificação de "não especificada" (só apresentação)
     diagnosticos['DS_DIAGNOSTICO'] = diagnosticos['DS_DIAGNOSTICO'].apply(simplificar_causa)
     diagnosticos['label'] = diagnosticos['QTD'].apply(fmt_compacto)
     fig = barra_horizontal(diagnosticos, 'QTD', 'DS_DIAGNOSTICO', 'label', 'Internações')
@@ -355,9 +345,6 @@ with col_c:
 
 # ============================================================
 # Seção 2 — Pressão Assistencial (BORBOLETA: região no CENTRO)
-#   • Esquerda: Internações (volume)   • Direita: Internações por leito (pressão)
-#   • Ambas coloridas pelo STATUS de pressão (🔴🟡🟢)
-#   • Rótulos de região no eixo central (coluna do meio)
 # ============================================================
 st.header("Seção 2 — Pressão Assistencial")
 st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações; "
@@ -375,7 +362,6 @@ def _status(v):
 capacidade_completa['status'] = capacidade_completa['INTERNACOES_POR_LEITO'].apply(_status)
 mediana_pressao = capacidade_completa['INTERNACOES_POR_LEITO'].median()
 
-# Ordena por pressão (asc → maior pressão no topo do eixo horizontal)
 borb = capacidade_completa.sort_values('INTERNACOES_POR_LEITO', ascending=True).copy()
 cores = borb['status'].map(COR_STATUS).tolist()
 altura_borboleta = max(650, len(borb) * 22)
@@ -385,7 +371,7 @@ fig_borb = make_subplots(
     column_widths=[0.42, 0.16, 0.42],
     subplot_titles=("Internações (volume)", "", "Internações por leito (pressão)")
 )
-# Esquerda: volume (eixo X invertido → cresce para a esquerda)
+# Esquerda: volume (log + espelhado, rótulos em volume real)
 fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
            marker_color=cores, name="Volume",
@@ -395,7 +381,7 @@ fig_borb.add_trace(
            hovertemplate="<b>%{customdata}</b><br>Internações: %{x:,.0f}<extra></extra>"),
     row=1, col=1
 )
-# Centro: rótulos das regiões (texto centralizado, sem eixos)
+# Centro: rótulos das regiões
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[0] * len(borb), mode="text",
                text=[truncar(n, 24) for n in borb['NM_REGIAO_SAUDE']],
@@ -403,7 +389,7 @@ fig_borb.add_trace(
                hoverinfo="skip", showlegend=False),
     row=1, col=2
 )
-# Direita: pressão (internações por leito)
+# Direita: pressão
 fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES_POR_LEITO'], orientation='h',
            marker_color=cores, name="Pressão",
@@ -413,32 +399,26 @@ fig_borb.add_trace(
            hovertemplate="<b>%{customdata}</b><br>Internações/leito: %{x:,.1f}<extra></extra>"),
     row=1, col=3
 )
-# Esconde os rótulos do eixo Y nas colunas de barras (nome fica só no centro)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
-
-# Asa esquerda (volume) em escala LOG, mantendo rótulos em volume real (10k, 100k...)
 _ticks_vol = [10000, 50000, 100000, 500000, 1000000]
 fig_borb.update_xaxes(
-    type="log", autorange="reversed", row=1, col=1,          # log + espelhado
+    type="log", autorange="reversed", row=1, col=1,
     tickmode="array", tickvals=_ticks_vol,
     ticktext=[fmt_compacto(v) for v in _ticks_vol]
 )
-fig_borb.update_xaxes(visible=False, row=1, col=2)           # coluna central limpa
-# Linha da mediana (anotação embaixo p/ não colidir com o título do painel)
+fig_borb.update_xaxes(visible=False, row=1, col=2)
 fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
                    annotation_text=f"Mediana: {fmt_num(mediana_pressao,1)}",
                    annotation_position="bottom right", row=1, col=3)
 aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
 fig_borb.update_layout(bargap=0.25)
-# Sobe um pouco os títulos dos painéis para não encostarem nas barras
 for ann in fig_borb.layout.annotations:
     if ann.text in ("Internações (volume)", "Internações por leito (pressão)"):
         ann.yshift = 10
 st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
 
-# KPIs de apoio da Seção 2
 n_critico = int((capacidade_completa['status'] == "Crítico").sum())
 n_atencao = int((capacidade_completa['status'] == "Atenção").sum())
 n_estavel = int((capacidade_completa['status'] == "Estável").sum())
