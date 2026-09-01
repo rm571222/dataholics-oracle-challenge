@@ -43,10 +43,12 @@ h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
 
 
 # ============================================================
-# CONEXÃO E CONSULTA  (lógica de dados INALTERADA)
+# CONEXÃO E CONSULTA  (com reconexão automática)
+# A conexão fica em cache_resource, mas o Oracle derruba a sessão por
+# ociosidade/reinício do worker no Streamlit Cloud. Para evitar o erro
+# "not connected" (_check_connected), fazemos ping e reconectamos se cair.
 # ============================================================
-@st.cache_resource
-def conectar():
+def _nova_conexao():
     wallet_path = "/tmp/wallet"
     if not os.path.exists(wallet_path):
         os.makedirs(wallet_path)
@@ -59,9 +61,28 @@ def conectar():
         wallet_location=wallet_path, wallet_password=st.secrets["wallet_password"]
     )
 
+@st.cache_resource
+def conectar():
+    return _nova_conexao()
+
+def _get_conexao():
+    """Devolve uma conexão viva: faz ping e reconecta (limpando o cache) se cair."""
+    conn = conectar()
+    try:
+        conn.ping()                      # valida a sessão; lança erro se estiver morta
+        return conn
+    except Exception:
+        conectar.clear()                 # descarta a conexão morta do cache_resource
+        return conectar()                # cria e cacheia uma nova
+
 @st.cache_data(ttl=3600)
 def consultar(query):
-    return pd.read_sql(query, conectar())
+    """Executa a query reaproveitando a conexão; em caso de queda, reconecta 1x e tenta de novo."""
+    try:
+        return pd.read_sql(query, _get_conexao())
+    except oracledb.DatabaseError:
+        conectar.clear()                 # força recriação da conexão
+        return pd.read_sql(query, conectar())
 
 
 # ============================================================
