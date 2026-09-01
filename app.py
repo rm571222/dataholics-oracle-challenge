@@ -268,24 +268,29 @@ fig_evolucao.add_annotation(row=1, col=1, x=_ult_x, y=_ult_y, text="  Total Gera
                             showarrow=False, xanchor="left", font=dict(color="#FFFFFF", size=12))
 
 # Painel inferior: Top 5 regiões — posição log, rótulos de dados + nome no fim da linha
+# Vermelho (Alto do Tietê) e roxo (Rota dos Bandeirantes) recebem rótulo PARA BAIXO
 _ult_x_reg = piv.index[-1]
+_rotulo_abaixo = {"ALTO DO TIETE", "ROTA DOS BANDEIRANTES"}
 for i, nome in enumerate(top5_regioes):
     if nome in piv.columns:
         cor = PALETA[i % len(PALETA)]
         rotulos_reg = [fmt_compacto(v) for v in piv[nome]]
+        pos_texto = "bottom center" if nome.upper() in _rotulo_abaixo else "top center"
         fig_evolucao.add_trace(
             go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines+markers+text",
                        line=dict(width=2, color=cor), marker=dict(size=4, color=cor),
-                       text=rotulos_reg, textposition="top center",
-                       textfont=dict(size=10, color="#CFCFCF"),
+                       text=rotulos_reg, textposition=pos_texto,
+                       textfont=dict(size=10, color=cor),   # número na cor da linha
                        hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
             row=2, col=1
         )
-        # Nome da região no FIM da própria linha (mesmo padrão do Total Geral)
-        fig_evolucao.add_annotation(
-            row=2, col=1, x=_ult_x_reg, y=piv[nome].iloc[-1],
-            text=f"  {truncar(nome, 22)}", showarrow=False, xanchor="left",
-            font=dict(color=cor, size=11)
+        # Nome da região no FIM da própria linha (marcador de texto, não sobrepõe o rótulo)
+        fig_evolucao.add_trace(
+            go.Scatter(x=[_ult_x_reg + pd.Timedelta(days=12)], y=[piv[nome].iloc[-1]],
+                       mode="text", text=[truncar(nome, 24)],
+                       textposition="middle right", textfont=dict(color=cor, size=11),
+                       hoverinfo="skip", showlegend=False),
+            row=2, col=1
         )
 fig_evolucao.update_yaxes(visible=False, showgrid=False, row=1, col=1)
 # Eixo em log, mas mostrando volumes (a cada 10k) — sem expor "log"
@@ -296,7 +301,7 @@ fig_evolucao.update_yaxes(
 )
 # Espaço à direita p/ caber os nomes no fim das linhas
 fig_evolucao.update_xaxes(range=[piv.index.min(),
-                                 piv.index.max() + pd.Timedelta(days=75)], row=2, col=1)
+                                 piv.index.max() + pd.Timedelta(days=210)], row=2, col=1)
 aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)  # legenda de cima removida
 fig_evolucao.update_layout(hovermode="x unified")
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
