@@ -271,7 +271,14 @@ fig_evolucao.add_annotation(row=1, col=1, x=_ult_x, y=_ult_y,
 # Painel inferior: Top 5 regiões — linha limpa; rótulo SÓ no último ponto + nome ao lado.
 # Pequeno desencontro vertical p/ nomes que se cruzam na faixa baixa (evita sobreposição).
 _ult_x_reg = piv.index[-1]
-_desloca_y = {"ALTO DO TIETE": 0.90, "ROTA DOS BANDEIRANTES": 1.10}  # fator multiplicativo (eixo log)
+# Fator multiplicativo (eixo log) p/ separar rótulos que se cruzam na faixa baixa.
+# Ordem natural das linhas no fim: Grande ABC ≈ Alto do Tietê (11k) > Rota (9k).
+#   verde um pouco acima, vermelho no meio, roxo abaixo.
+_desloca_y = {
+    "GRANDE ABC": 1.15,            # verde: sobe um pouco p/ não colar no vermelho
+    "ALTO DO TIETE": 0.98,         # vermelho: fica no meio
+    "ROTA DOS BANDEIRANTES": 0.82, # roxo: desce (é o menor volume)
+}
 for i, nome in enumerate(top5_regioes):
     if nome in piv.columns:
         cor = PALETA[i % len(PALETA)]
@@ -298,9 +305,14 @@ fig_evolucao.update_yaxes(
     type="log", title_text="Internações", row=2, col=1,
     tickmode="array", tickvals=_ticks, ticktext=[fmt_compacto(v) for v in _ticks]
 )
-# Espaço à direita p/ caber "NOME — valor" no fim das linhas (nomes longos)
-fig_evolucao.update_xaxes(range=[piv.index.min(),
-                                 piv.index.max() + pd.Timedelta(days=320)], row=2, col=1)
+# Espaço à direita p/ caber "NOME — valor" no fim das linhas (nomes longos),
+# mas travando os ticks até o último mês real (não mostra jan/2027).
+_ticks_x = pd.date_range(start=piv.index.min(), end=piv.index.max(), freq="3MS")
+fig_evolucao.update_xaxes(
+    range=[piv.index.min(), piv.index.max() + pd.Timedelta(days=300)],
+    tickmode="array", tickvals=_ticks_x,
+    ticktext=[d.strftime("%b %Y") for d in _ticks_x], row=2, col=1
+)
 aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)  # legenda de cima removida
 fig_evolucao.update_layout(hovermode="x unified")
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
