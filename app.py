@@ -399,7 +399,7 @@ fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
            marker_color=cores, name="Volume",
            text=[fmt_compacto(v) for v in borb['INTERNACOES']],
-           textposition="inside", insidetextanchor="start", cliponaxis=False,
+           textposition="outside", cliponaxis=False,
            customdata=borb['NM_REGIAO_SAUDE'],
            hovertemplate="<b>%{customdata}</b><br>Internações: %{x:,.0f}<extra></extra>"),
     row=1, col=1
@@ -407,7 +407,7 @@ fig_borb.add_trace(
 _ticks_vol = [10000, 50000, 100000, 500000, 1000000]
 # Range explícito (log, espelhado) com folga externa p/ os leitos ficarem FORA do gráfico
 _int_max = float(borb['INTERNACOES'].max())
-_outer = _int_max * 4.5          # borda externa ampla → sobra espaço à esquerda p/ os leitos
+_outer = _int_max * 6.0          # borda externa ampla → separa o "1,6 Mi" da coluna de leitos
 _inner = 1500.0                  # borda interna (centro) — base das barras
 fig_borb.update_xaxes(
     type="log", range=[math.log10(_outer), math.log10(_inner)], row=1, col=1,
