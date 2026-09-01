@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import base64, os, zipfile, io, re
+import base64, os, zipfile, io, re, math
 
 # ============================================================
 # CONFIG GLOBAL
@@ -368,7 +368,8 @@ with col_c:
 # Seção 2 — Pressão Assistencial (BORBOLETA: região no CENTRO)
 # ============================================================
 st.header("Seção 2 — Pressão Assistencial")
-st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações; "
+st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações "
+           "(o número em branco no início da barra é a quantidade de leitos da região); "
            "à direita, a pressão sobre a estrutura (internações por leito). "
            "🔴 Crítico · 🟡 Atenção · 🟢 Estável — pela mediana estadual de pressão.")
 
@@ -441,18 +442,22 @@ else:
         row=1, col=1
     )
     _ticks_vol = [10000, 50000, 100000, 500000, 1000000]
+    # Range explícito (log, reversed via ordem descendente) com folga p/ o rótulo de SP (1,6 Mi)
+    _int_max = float(borb['INTERNACOES'].max())
+    _outer = _int_max * 2.2          # borda externa (esquerda) — headroom p/ "1,6 Mi"
+    _inner = 1500.0                  # borda interna (centro) — base das barras
     fig_borb.update_xaxes(
-        type="log", autorange="reversed", row=1, col=1,
+        type="log", range=[math.log10(_outer), math.log10(_inner)], row=1, col=1,
         tickmode="array", tickvals=_ticks_vol,
         ticktext=[fmt_compacto(v) for v in _ticks_vol]
     )
-    # nº de leitos alinhado no INÍCIO das barras (borda interna, junto ao centro),
-    # formando uma coluna que funciona como um "eixo Y" de leitos.
-    _x_inner = max(_ticks_vol) * 1.6  # ponto fixo na borda interna (lado do centro)
+    # nº de leitos no INÍCIO da barra (borda interna, junto ao centro), como um "eixo Y".
+    # x fixo logo acima da base (_inner) → texto cai sobre o começo de todas as barras.
+    _x_leitos = _inner * 1.6
     fig_borb.add_trace(
-        go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_inner] * len(borb), mode="text",
-                   text=[f"{fmt_num(v)} leitos" for v in borb['LEITOS_REGIAO']],
-                   textposition="middle left", textfont=dict(size=10, color="#AAB4BF"),
+        go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_leitos] * len(borb), mode="text",
+                   text=[fmt_num(v) for v in borb['LEITOS_REGIAO']],
+                   textposition="middle left", textfont=dict(size=10, color="#FFFFFF"),
                    hoverinfo="skip", showlegend=False),
         row=1, col=1
     )
