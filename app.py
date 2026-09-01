@@ -152,35 +152,44 @@ df['_hover'] = df.apply(lambda r:
     f"Permanência: {fmt_num(r['PERMANENCIA_MEDIA'] or 0,1)} dias",
     axis=1)
 
+# Compatibilidade Plotly: 6.x usa Scattermap (MapLibre); <6 usa Scattermapbox.
+_USA_MAP = hasattr(go, "Scattermap")
+_TraceMap = go.Scattermap if _USA_MAP else go.Scattermapbox
+
+def _trace_pontos(sub, nome, cor, tamanho=None):
+    marker = dict(color=cor, opacity=0.75)
+    if tamanho is not None:
+        marker.update(size=tamanho, sizemode='area',
+                      sizeref=(tamanho.max() / 900) if tamanho.max() else 1)
+    else:
+        marker.update(size=8, opacity=0.6)
+    return _TraceMap(lat=sub['LATITUDE'], lon=sub['LONGITUDE'], mode='markers',
+                     name=nome, marker=marker, text=sub['_hover'], hoverinfo='text')
+
 fig = go.Figure()
 for st_nome, cor in COR_STATUS.items():
     sub = df[df['status'] == st_nome]
     if len(sub):
-        fig.add_trace(go.Scattermapbox(
-            lat=sub['LATITUDE'], lon=sub['LONGITUDE'], mode='markers',
-            name=st_nome,
-            marker=dict(size=sub['_size'], sizemode='area',
-                        sizeref=sub['_size'].max() / 900 if sub['_size'].max() else 1,
-                        color=cor, opacity=0.75),
-            text=sub['_hover'], hoverinfo='text'
-        ))
+        fig.add_trace(_trace_pontos(sub, st_nome, cor, tamanho=sub['_size']))
 # hospitais sem dado de ocupação (cinza)
 sub = df[df['status'] == "Sem dado"]
 if len(sub):
-    fig.add_trace(go.Scattermapbox(
-        lat=sub['LATITUDE'], lon=sub['LONGITUDE'], mode='markers', name="Sem dado",
-        marker=dict(size=8, color="#7F8C9B", opacity=0.6),
-        text=sub['_hover'], hoverinfo='text'
-    ))
+    fig.add_trace(_trace_pontos(sub, "Sem dado", "#7F8C9B"))
 
-fig.update_layout(
-    mapbox_style="carto-darkmatter",   # tema escuro, sem token
-    mapbox_zoom=5.6, mapbox_center=dict(lat=-22.5, lon=-48.6),
+# Layout do mapa: chaves diferem entre as APIs (map vs mapbox)
+_layout_mapa = dict(
     height=640, margin=dict(l=0, r=0, t=0, b=0),
     legend=dict(orientation="h", yanchor="top", y=0.99, xanchor="left", x=0.01,
                 bgcolor="rgba(28,31,38,0.8)", font=dict(color="#E6E6E6")),
     paper_bgcolor="rgba(0,0,0,0)",
 )
+if _USA_MAP:
+    _layout_mapa.update(map=dict(style="carto-darkmatter", zoom=5.6,
+                                 center=dict(lat=-22.5, lon=-48.6)))
+else:
+    _layout_mapa.update(mapbox=dict(style="carto-darkmatter", zoom=5.6,
+                                    center=dict(lat=-22.5, lon=-48.6)))
+fig.update_layout(**_layout_mapa)
 st.plotly_chart(fig, use_container_width=True, key="mapa_hospitais")
 
 st.caption("🔴 ocupação ≥ 70% · 🟡 55–70% · 🟢 < 55% · ⚪ sem dado de leitos SUS. "
