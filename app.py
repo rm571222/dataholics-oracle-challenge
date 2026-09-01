@@ -392,10 +392,6 @@ with col_c:
 # Seção 2 — Pressão Assistencial (BORBOLETA: região no CENTRO)
 # ============================================================
 st.header("Pressão Assistencial — Ocupação de Leitos SUS")
-st.caption("Regiões ordenadas pela **taxa de ocupação de leitos SUS** (métrica-chave). À esquerda, o volume "
-           "de internações e os leitos SUS da região; ao centro, o nome; à direita, a ocupação (barra), "
-           "com a pressão (internações por leito) como referência secundária. "
-           "Regiões com forte rede privada tendem a esconder a pressão real sobre o SUS.")
 
 capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
 # Fallback: se a view ainda não tiver TAXA_OCUPACAO, calcula no app (base SUS).
@@ -446,7 +442,13 @@ sc2.markdown(card_status2(COR_STATUS["Atenção"], "🟡", "Regiões em Atençã
                           n_atencao, n_total, "ocupação 55–70%"), unsafe_allow_html=True)
 sc3.markdown(card_status2(COR_STATUS["Estável"], "🟢", "Regiões Estáveis",
                           n_estavel, n_total, "ocupação < 55%"), unsafe_allow_html=True)
-st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
+st.markdown(
+    "<div style='text-align:center; color:#AAB4BF; font-size:0.9rem; margin:0.8rem 0 0.4rem;'>"
+    "Regiões ordenadas pela <b>taxa de ocupação de leitos SUS</b> (métrica-chave). À esquerda, o volume "
+    "de internações e os leitos da região; ao centro, o nome; à direita, a ocupação, com a pressão "
+    "(internações por leito) como referência secundária.<br>"
+    "Regiões com forte rede privada tendem a esconder a pressão real sobre o SUS."
+    "</div>", unsafe_allow_html=True)
 
 # Ordena por TAXA DE OCUPAÇÃO (métrica-chave) — asc p/ maior ocupação no topo
 borb = capacidade_completa.sort_values('TAXA_OCUPACAO', ascending=True).copy()
@@ -477,8 +479,8 @@ fig_borb.update_xaxes(
 _x_leitos = _outer * 0.95
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_leitos] * len(borb), mode="text",
-               text=[f"{fmt_num(v)} leitos SUS" for v in borb['LEITOS_REGIAO']],
-               textposition="middle right", textfont=dict(size=10, color="#AAB4BF"),
+               text=[f"{fmt_num(v)} leitos" for v in borb['LEITOS_REGIAO']],
+               textposition="middle right", textfont=dict(size=9, color="#8A929B"),
                hoverinfo="skip", showlegend=False),
     row=1, col=1
 )
@@ -515,13 +517,6 @@ fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
 fig_borb.update_xaxes(visible=False, row=1, col=2)
 fig_borb.update_xaxes(showticklabels=False, range=[0, _ocup_outer], row=1, col=3)
-# Linhas de referência alinhadas aos thresholds: 55% (Atenção) e 70% (Crítico)
-fig_borb.add_vline(x=OCUP_ATENCAO, line_dash='dot', line_color='#F5A623',
-                   annotation_text="55% Atenção", annotation_position="top left",
-                   annotation_font_size=9, annotation_font_color="#F5A623", row=1, col=3)
-fig_borb.add_vline(x=OCUP_CRITICO, line_dash='dash', line_color='#E74C3C',
-                   annotation_text="70% Crítico", annotation_position="top right",
-                   annotation_font_size=9, annotation_font_color="#E74C3C", row=1, col=3)
 aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
 fig_borb.update_layout(bargap=0.25)
 for ann in fig_borb.layout.annotations:
