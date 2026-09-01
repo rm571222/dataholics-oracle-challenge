@@ -535,3 +535,71 @@ st.caption(
     "privada ou recortes de pico (ex.: UTI). Valores acima de 100% indicam demanda superior "
     "à capacidade instalada no período."
 )
+
+
+# ============================================================
+# Seção 3 — Hospitais (rankings empilhados, nomes longos)
+# ============================================================
+st.header("Hospitais — Permanência, Capacidade e Ocupação")
+st.caption("Rankings por hospital (mín. 200 internações no período). "
+           "Nomes e leitos SUS via cadastro CNES; ocupação pela mesma metodologia SUS da seção anterior.")
+
+hosp = consultar("SELECT * FROM VW_HOSPITAL_PERMANENCIA")
+# Média estadual de permanência (linha de referência)
+perm_estadual = consultar("SELECT permanencia_media FROM VW_KPIS_GERAIS")['PERMANENCIA_MEDIA'][0]
+
+def ranking_hospitais(df, coluna, titulo_x, formato, altura, cores=None, ref=None, ref_txt=None):
+    """Barra horizontal de hospitais (Top 12), nome completo no eixo (empilhado = espaço)."""
+    d = df.copy()
+    d['_ylabel'] = d['NM_HOSPITAL'].apply(lambda s: truncar(s, 48))
+    ordem = d['_ylabel'].tolist()
+    d['_texto'] = d[coluna].apply(formato)
+    fig = px.bar(d, x=coluna, y='_ylabel', orientation='h', text='_texto',
+                 custom_data=['NM_HOSPITAL', 'NM_REGIAO_SAUDE'])
+    if cores is not None:
+        fig.update_traces(marker_color=cores)
+    fig.update_traces(textposition="outside", cliponaxis=False,
+                      hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]}"
+                                    "<br>" + titulo_x + ": %{x:,.1f}<extra></extra>")
+    fig.update_layout(yaxis_title=None, xaxis_title=titulo_x,
+                      yaxis=dict(automargin=True, categoryorder="array", categoryarray=ordem))
+    aplicar_tema(fig, altura=altura, mostrar_legenda=False)
+    fig.update_layout(margin=dict(l=10, r=90, t=30, b=10))
+    if ref is not None:
+        fig.add_vline(x=ref, line_dash='dash', line_color='#F5A623',
+                      annotation_text=ref_txt, annotation_position="top right",
+                      annotation_font_size=10, annotation_font_color="#F5A623")
+    return fig
+
+# --- 3.1 Maior permanência média (com linha da média estadual) ---
+st.subheader("🛏️ Maiores permanências médias")
+st.caption(f"Linha de referência = média estadual ({fmt_num(perm_estadual,1)} dias). "
+           "Hospitais especializados (psiquiátricos, reabilitação, moléstias infecciosas) "
+           "têm longa permanência por natureza — não indica ineficiência.")
+top_perm = hosp.sort_values('PERMANENCIA_MEDIA', ascending=False).head(12).sort_values('PERMANENCIA_MEDIA')
+fig = ranking_hospitais(top_perm, 'PERMANENCIA_MEDIA', 'Permanência média (dias)',
+                        lambda v: f"{fmt_num(v,1)} dias", altura=460,
+                        ref=perm_estadual, ref_txt=f"Média estadual: {fmt_num(perm_estadual,1)}d")
+st.plotly_chart(fig, use_container_width=True, key="hosp_permanencia")
+
+# --- 3.2 Maior capacidade (leitos SUS) ---
+st.subheader("🏥 Maiores capacidades (leitos SUS)")
+top_leitos = (hosp[hosp['LEITOS_SUS'].notna()]
+              .sort_values('LEITOS_SUS', ascending=False).head(12)
+              .sort_values('LEITOS_SUS'))
+fig = ranking_hospitais(top_leitos, 'LEITOS_SUS', 'Leitos SUS',
+                        lambda v: fmt_inteiro(v), altura=460)
+fig.update_traces(marker_color="#4C9AFF")
+st.plotly_chart(fig, use_container_width=True, key="hosp_leitos")
+
+# --- 3.3 Maiores taxas de ocupação (cores por status) ---
+st.subheader("📊 Maiores taxas de ocupação de leitos SUS")
+st.caption("🔴 ≥ 70% · 🟡 55–70% · 🟢 < 55% — mesmos limiares da seção anterior. "
+           "Hospitais acima de 100% operam com demanda superior à capacidade instalada.")
+top_ocup = (hosp[hosp['TAXA_OCUPACAO'].notna()]
+            .sort_values('TAXA_OCUPACAO', ascending=False).head(12)
+            .sort_values('TAXA_OCUPACAO'))
+cores_ocup = top_ocup['TAXA_OCUPACAO'].apply(_status).map(COR_STATUS).tolist()
+fig = ranking_hospitais(top_ocup, 'TAXA_OCUPACAO', 'Taxa de ocupação (%)',
+                        lambda v: f"{fmt_num(v,1)}%", altura=460, cores=cores_ocup)
+st.plotly_chart(fig, use_container_width=True, key="hosp_ocupacao")
