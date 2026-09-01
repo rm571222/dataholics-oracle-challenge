@@ -184,10 +184,17 @@ crescimento_final = base_indexada.sort_values('competencia').groupby('grupo')['i
 ordem_categorias = crescimento_final.index.tolist()
 
 fig_evolucao = px.line(
-    base_indexada, x='competencia', y='indice', color='grupo',
+    base_indexada, x='competencia', y='indice',
+    facet_col='grupo', facet_col_wrap=4,
     category_orders={'grupo': ordem_categorias},
-    line_shape='spline'
+    line_shape='linear'  # linha reta, fiel ao dado real — sem overshoot
 )
+fig_evolucao.add_hline(y=100, line_dash='dot', line_color='gray')
+fig_evolucao.update_yaxes(matches='y')  # mesma escala em todos os mini-gráficos, pra comparação justa
+fig_evolucao.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))  # limpa o título "grupo=X"
+fig_evolucao.update_layout(showlegend=False, height=500)
+st.plotly_chart(fig_evolucao, use_container_width=True)
+
 # Destaca a linha do Total Geral (pontilhada, branca, mais grossa)
 for trace in fig_evolucao.data:
     if trace.name == 'Total Geral':
@@ -216,7 +223,7 @@ with col_a:
     """).sort_values('QTD_INTERNACOES')
     regioes['label'] = regioes['QTD_INTERNACOES'].apply(fmt_compacto)
     fig = px.bar(regioes, x='QTD_INTERNACOES', y='NM_REGIAO_SAUDE', orientation='h', text='label')
-    fig.update_traces(textposition='outside')
+    fig.update_traces(textposition='outside', cliponaxis=False)
     fig.update_layout(yaxis_title=None, xaxis_title='Internações', height=ALTURA_PADRAO,
                        yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
     fig.update_xaxes(tickformat="~s")
