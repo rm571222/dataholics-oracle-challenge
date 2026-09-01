@@ -3,12 +3,35 @@ import oracledb
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import base64, os, zipfile, io
 
-st.set_page_config(page_title="Painel Hospitalar SP - DATAHOLICS", layout="wide")
+# ============================================================
+# CONFIG GLOBAL
+# ============================================================
+st.set_page_config(
+    page_title="Painel Hospitalar SP - DATAHOLICS",
+    page_icon="🏥",
+    layout="wide",
+)
+
+# --- Constantes de layout/tema (fonte única de verdade) --------------------
+CHART_HEIGHT = 380          # altura padrão de TODOS os gráficos
+CHART_HEIGHT_LG = 440       # altura para gráficos "hero" (evolução / dispersão)
+MARGEM_PADRAO = dict(l=10, r=30, t=40, b=10)
+
+# Paleta categórica única (aplicada por categoria em todos os gráficos)
+PALETA = ["#4C9AFF", "#F5A623", "#2ECC71", "#E74C3C", "#9B59B6",
+          "#1ABC9C", "#E84393", "#F1C40F", "#95A5A6"]
+
+# separators=',.'  => decimal vírgula e milhar ponto (padrão BR) em todo o Plotly
+SEPARADOR_BR = ",."
 
 st.markdown("""
 <style>
+/* Container mais estreito em telas gigantes evita gráficos "esticados" demais */
+.block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px; }
+
 [data-testid="stMetric"] {
     background-color: #1C1F26;
     border: 1px solid #333;
@@ -16,9 +39,18 @@ st.markdown("""
     padding: 15px;
 }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
+
+/* Responsividade: em telas menores tira o padding lateral pra não cortar */
+@media (max-width: 640px) {
+    .block-container { padding-left: 0.6rem; padding-right: 0.6rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
+
+# ============================================================
+# CONEXÃO E CONSULTA  (lógica de dados INALTERADA)
+# ============================================================
 @st.cache_resource
 def conectar():
     wallet_path = "/tmp/wallet"
@@ -37,6 +69,10 @@ def conectar():
 def consultar(query):
     return pd.read_sql(query, conectar())
 
+
+# ============================================================
+# UTILITÁRIOS DE FORMATAÇÃO (padrão Brasil)
+# ============================================================
 def fmt_num(valor, casas=0):
     """Formata número completo no padrão brasileiro: 1.234.567,89"""
     s = f"{valor:,.{casas}f}"
@@ -50,6 +86,42 @@ def fmt_compacto(valor):
         return f"{valor/1_000:.0f}k"
     return f"{valor:.0f}"
 
+
+# ============================================================
+# TEMA ÚNICO DOS GRÁFICOS  (aplicado em TODOS via aplicar_tema)
+# Centraliza cores, fonte, margens, legenda, altura e separador BR.
+# ============================================================
+def aplicar_tema(fig, altura=CHART_HEIGHT, mostrar_legenda=True):
+    fig.update_layout(
+        template="plotly_dark",
+        height=altura,
+        colorway=PALETA,
+        font=dict(family="Segoe UI, sans-serif", size=13, color="#E6E6E6"),
+        title=dict(font=dict(size=16)),
+        margin=MARGEM_PADRAO,
+        separators=SEPARADOR_BR,                 # milhar "." e decimal "," (BR)
+        hovermode="closest",
+        hoverlabel=dict(font_size=12, font_family="Segoe UI"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0, title_text=""),
+        showlegend=mostrar_legenda,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(255,255,255,0.08)", zeroline=False)
+    return fig
+
+def barra_horizontal(df, x, y, texto, titulo_x, altura=CHART_HEIGHT):
+    """Fábrica única de barras horizontais — garante proporção/estilo idêntico."""
+    fig = px.bar(df, x=x, y=y, orientation="h", text=texto)
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    fig.update_layout(yaxis_title=None, xaxis_title=titulo_x,
+                      yaxis=dict(automargin=True))
+    aplicar_tema(fig, altura=altura, mostrar_legenda=False)
+    return fig
+
+
 # ============================================================
 # Descobre dinamicamente o período real dos dados
 # ============================================================
@@ -61,10 +133,12 @@ periodo = consultar("""
 ini_str = f"{str(periodo['INI'][0])[4:6]}/{str(periodo['INI'][0])[0:4]}"
 fim_ano, fim_mes = int(str(periodo['FIM'][0])[0:4]), int(str(periodo['FIM'][0])[4:6])
 fim_str = f"{fim_mes:02d}/{fim_ano}"
+# Data de atualização em dd/mm/aaaa (último dia da competência mais recente)
+data_atualizacao = f"01/{fim_str}"
 
 st.title("🏥 Painel Hospitalar SP — DATAHOLICS")
-st.caption(f"FIAP Challenge | Parceria Oracle — Dados SIH/DATASUS, {ini_str} a {fim_str} · "
-           f"Dados atualizados até: {fim_str}")
+st.caption(f"FIAP Challenge | Parceria Oracle — Dados SIH/DATASUS, {ini_str} a {fim_str}  ·  "
+           f"Dados atualizados em: {data_atualizacao}")
 
 st.header("Seção 1 — Visão Executiva")
 
@@ -114,40 +188,40 @@ delta_mes = ((mes_atual - mes_anterior) / mes_anterior * 100) if mes_anterior el
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(
-    "Total de Internações",
+    "Total de Internações (todo o período)",
     fmt_num(total_geral),
     help=f"Soma de todas as internações registradas no período completo disponível ({ini_str} a {fim_str})."
 )
 col2.metric(
     "Últimos 12 Meses",
     fmt_num(ultimos_12),
-    delta=f"{delta_12m:+.1f}% vs. 12 meses anteriores ({fmt_num(ultimos_12_anterior)})",
+    delta=f"{fmt_num(delta_12m, 1)}% vs. 12 meses anteriores ({fmt_num(ultimos_12_anterior)})",
     delta_color="inverse",
     help="Soma dos 12 meses mais recentes disponíveis, comparada com os 12 meses imediatamente anteriores a eles."
 )
 col3.metric(
     f"YTD ({fim_ano})",
     fmt_num(ytd),
-    delta=f"{delta_ytd:+.1f}% vs. YTD {fim_ano - 1} ({fmt_num(ytd_anterior)})",
+    delta=f"{fmt_num(delta_ytd, 1)}% vs. YTD {fim_ano - 1} ({fmt_num(ytd_anterior)})",
     delta_color="inverse",
     help=f"Year to Date: soma de janeiro até {fim_mes:02d}/{fim_ano}, comparada ao mesmo intervalo de {fim_ano - 1}."
 )
 col4.metric(
     f"Último Mês ({fim_str})",
     fmt_num(mes_atual),
-    delta=f"{delta_mes:+.1f}% vs. mês anterior ({fmt_num(mes_anterior)})",
+    delta=f"{fmt_num(delta_mes, 1)}% vs. mês anterior ({fmt_num(mes_anterior)})",
     delta_color="inverse",
     help="Total do mês mais recente disponível, comparado percentualmente com o mês imediatamente anterior."
 )
 
 # ============================================================
-# Gráfico de evolução: ÍNDICE DE CRESCIMENTO (base 100 no primeiro mês)
-# Resolve o problema de escala (regiões pequenas ficavam esmagadas) e
-# responde diretamente a pergunta "onde está crescendo mais"
+# Gráfico de evolução mensal — VALORES ABSOLUTOS
+# Top 5 regiões + "Outras Regiões" (eixo esquerdo) + "Total Geral" (eixo direito)
+# O Total vai no eixo secundário para não esmagar as linhas regionais.
 # ============================================================
-st.subheader("📈 Evolução do Crescimento por Região (índice, base 100)")
-st.caption("Cada linha começa em 100 no primeiro mês disponível. Uma linha subindo mais que as outras "
-           "indica crescimento relativo mais rápido — independente do volume absoluto da região.")
+st.subheader("📈 Evolução Mensal de Internações — Top 5 Regiões, Outras e Total Geral")
+st.caption("Linhas coloridas = internações por região (eixo esquerdo). Linha pontilhada = Total Geral "
+           "de SP (eixo direito). Passe o mouse para ver os valores mês a mês.")
 
 top5_regioes = consultar("""
     SELECT nm_regiao_saude FROM VW_VOLUME_REGIAO
@@ -167,52 +241,42 @@ temporal_completo['grupo'] = temporal_completo['NM_REGIAO_SAUDE'].apply(
 )
 temporal_agrupado = temporal_completo.groupby(['competencia', 'grupo'])['QTD_INTERNACOES'].sum().reset_index()
 temporal_total = temporal_completo.groupby('competencia')['QTD_INTERNACOES'].sum().reset_index()
-temporal_total['grupo'] = 'Total Geral'
-temporal_total = temporal_total.rename(columns={'QTD_INTERNACOES': 'QTD_INTERNACOES'})
 
-# Junta tudo (regiões + total) e calcula o índice base 100
-base_completa = pd.concat([temporal_agrupado, temporal_total[['competencia', 'grupo', 'QTD_INTERNACOES']]])
-base_completa = base_completa.sort_values('competencia')
+# Pivota para desenhar cada série como uma linha
+piv = temporal_agrupado.pivot_table(index='competencia', columns='grupo',
+                                     values='QTD_INTERNACOES', aggfunc='sum').sort_index()
 
-base_completa = base_completa.sort_values(['grupo', 'competencia'])
-primeiro_valor_por_grupo = base_completa.groupby('grupo')['QTD_INTERNACOES'].transform('first')
-base_completa['indice'] = base_completa['QTD_INTERNACOES'] / primeiro_valor_por_grupo * 100
-base_indexada = base_completa
+# Ordena as séries: top5 (na ordem do ranking) e depois "Outras Regiões"
+ordem_series = [r for r in top5_regioes if r in piv.columns]
+if 'Outras Regiões' in piv.columns:
+    ordem_series.append('Outras Regiões')
 
-# Ordena a legenda pelo crescimento final (quem mais cresceu aparece primeiro)
-crescimento_final = base_indexada.sort_values('competencia').groupby('grupo')['indice'].last().sort_values(ascending=False)
-ordem_categorias = crescimento_final.index.tolist()
-
-fig_evolucao = px.line(
-    base_indexada, x='competencia', y='indice',
-    facet_col='grupo', facet_col_wrap=4,
-    category_orders={'grupo': ordem_categorias},
-    line_shape='linear'  # linha reta, fiel ao dado real — sem overshoot
+fig_evolucao = make_subplots(specs=[[{"secondary_y": True}]])
+for i, nome in enumerate(ordem_series):
+    fig_evolucao.add_trace(
+        go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines+markers",
+                   line=dict(width=2, color=PALETA[i % len(PALETA)]),
+                   hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
+        secondary_y=False,
+    )
+fig_evolucao.add_trace(
+    go.Scatter(x=temporal_total['competencia'], y=temporal_total['QTD_INTERNACOES'],
+               name="Total Geral", mode="lines",
+               line=dict(color="#FFFFFF", width=3, dash="dot"),
+               hovertemplate="<b>Total Geral</b>: %{y:,.0f}<extra></extra>"),
+    secondary_y=True,
 )
-fig_evolucao.add_hline(y=100, line_dash='dot', line_color='gray')
-fig_evolucao.update_yaxes(matches='y')  # mesma escala em todos os mini-gráficos, pra comparação justa
-fig_evolucao.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))  # limpa o título "grupo=X"
-fig_evolucao.update_layout(showlegend=False, height=500)
-st.plotly_chart(fig_evolucao, use_container_width=True)
-
-# Destaca a linha do Total Geral (pontilhada, branca, mais grossa)
-for trace in fig_evolucao.data:
-    if trace.name == 'Total Geral':
-        trace.line.update(color='white', width=3, dash='dot')
-
-fig_evolucao.add_hline(y=100, line_dash='dot', line_color='gray', annotation_text='Base (100)')
-fig_evolucao.update_layout(
-    legend_title_text='Região (por crescimento)', hovermode='x unified',
-    xaxis_title=None, yaxis_title='Índice (base 100)', height=450
-)
-st.plotly_chart(fig_evolucao, use_container_width=True)
+fig_evolucao.update_yaxes(title_text="Internações por região", secondary_y=False)
+fig_evolucao.update_yaxes(title_text="Total geral (SP)", secondary_y=True, showgrid=False)
+fig_evolucao.update_xaxes(title_text=None)
+aplicar_tema(fig_evolucao, altura=CHART_HEIGHT_LG)
+fig_evolucao.update_layout(hovermode="x unified")
+st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
 # ============================================================
 # Rankings: Top 10 Regiões | Top 10 Causas | Share por Caráter
-# Altura padronizada (height=420) + números compactos (170k, 1,5 Mi)
+# Altura padronizada (CHART_HEIGHT) + números compactos (170k, 1,5 Mi)
 # ============================================================
-ALTURA_PADRAO = 420
-
 col_a, col_b, col_c = st.columns(3)
 
 with col_a:
@@ -222,12 +286,8 @@ with col_a:
         ORDER BY qtd_internacoes DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD_INTERNACOES')
     regioes['label'] = regioes['QTD_INTERNACOES'].apply(fmt_compacto)
-    fig = px.bar(regioes, x='QTD_INTERNACOES', y='NM_REGIAO_SAUDE', orientation='h', text='label')
-    fig.update_traces(textposition='outside', cliponaxis=False)
-    fig.update_layout(yaxis_title=None, xaxis_title='Internações', height=ALTURA_PADRAO,
-                       yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
-    fig.update_xaxes(tickformat="~s")
-    st.plotly_chart(fig, use_container_width=True)
+    fig = barra_horizontal(regioes, 'QTD_INTERNACOES', 'NM_REGIAO_SAUDE', 'label', 'Internações')
+    st.plotly_chart(fig, use_container_width=True, key="top_regioes")
 
 with col_b:
     st.subheader("🩺 Top 10 Causas")
@@ -236,12 +296,8 @@ with col_b:
         ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD')
     diagnosticos['label'] = diagnosticos['QTD'].apply(fmt_compacto)
-    fig = px.bar(diagnosticos, x='QTD', y='DS_DIAGNOSTICO', orientation='h', text='label')
-    fig.update_traces(textposition='outside')
-    fig.update_layout(yaxis_title=None, xaxis_title='Internações', height=ALTURA_PADRAO,
-                       yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
-    fig.update_xaxes(tickformat="~s")
-    st.plotly_chart(fig, use_container_width=True)
+    fig = barra_horizontal(diagnosticos, 'QTD', 'DS_DIAGNOSTICO', 'label', 'Internações')
+    st.plotly_chart(fig, use_container_width=True, key="top_causas")
 
 with col_c:
     st.subheader("🚑 Share por Caráter de Internação")
@@ -249,11 +305,8 @@ with col_c:
     carater_share['pct'] = carater_share['QTD_INTERNACOES'] / carater_share['QTD_INTERNACOES'].sum() * 100
     carater_share = carater_share.sort_values('pct')
     carater_share['label'] = carater_share['pct'].apply(lambda v: f"{v:.1f}%".replace('.', ','))
-    fig = px.bar(carater_share, x='pct', y='DS_CARATER_INTERNACAO', orientation='h', text='label')
-    fig.update_traces(textposition='outside')
-    fig.update_layout(xaxis_title='% do total', yaxis_title=None, height=ALTURA_PADRAO,
-                       yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    fig = barra_horizontal(carater_share, 'pct', 'DS_CARATER_INTERNACAO', 'label', '% do total')
+    st.plotly_chart(fig, use_container_width=True, key="share_carater")
 
 # ============================================================
 # Mortalidade por caráter de internação (achado-chave)
@@ -265,12 +318,9 @@ mortalidade = consultar("""
     ORDER BY taxa_mortalidade DESC
 """)
 mortalidade['label'] = mortalidade['TAXA_MORTALIDADE'].apply(lambda v: f"{v:.2f}%".replace('.', ','))
-fig = px.bar(mortalidade.sort_values('TAXA_MORTALIDADE'), x='TAXA_MORTALIDADE', y='DS_CARATER_INTERNACAO',
-             orientation='h', text='label')
-fig.update_traces(textposition='outside')
-fig.update_layout(yaxis_title=None, xaxis_title='Taxa de mortalidade (%)', height=380,
-                   yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
-st.plotly_chart(fig, use_container_width=True)
+fig = barra_horizontal(mortalidade.sort_values('TAXA_MORTALIDADE'),
+                       'TAXA_MORTALIDADE', 'DS_CARATER_INTERNACAO', 'label', 'Taxa de mortalidade (%)')
+st.plotly_chart(fig, use_container_width=True, key="mortalidade")
 
 # ============================================================
 # Seção 2 — Capacidade Instalada (dispersão: volume x pressão)
@@ -292,7 +342,7 @@ fig_capacidade = px.scatter(
 )
 fig_capacidade.add_vline(x=mediana_x, line_dash='dash', line_color='gray')
 fig_capacidade.add_hline(y=mediana_y, line_dash='dash', line_color='gray')
-fig_capacidade.update_layout(xaxis_title='Volume de Internações', yaxis_title='Internações por Leito (pressão)',
-                              height=500, margin=dict(l=10, r=10, t=10, b=10))
-fig_capacidade.update_xaxes(tickformat="~s")
-st.plotly_chart(fig_capacidade, use_container_width=True)
+fig_capacidade.update_layout(xaxis_title='Volume de Internações',
+                             yaxis_title='Internações por Leito (pressão)')
+aplicar_tema(fig_capacidade, altura=CHART_HEIGHT_LG, mostrar_legenda=False)
+st.plotly_chart(fig_capacidade, use_container_width=True, key="capacidade")
