@@ -38,9 +38,17 @@ def consultar(query):
     return pd.read_sql(query, conectar())
 
 def fmt_num(valor, casas=0):
-    """Formata número no padrão brasileiro: 1.234.567,89"""
+    """Formata número completo no padrão brasileiro: 1.234.567,89"""
     s = f"{valor:,.{casas}f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+def fmt_compacto(valor):
+    """Formata número de forma compacta: 170k, 1,2 Mi"""
+    if abs(valor) >= 1_000_000:
+        return f"{valor/1_000_000:.1f}".replace('.', ',') + " Mi"
+    elif abs(valor) >= 1_000:
+        return f"{valor/1_000:.0f}k"
+    return f"{valor:.0f}"
 
 # ============================================================
 # Descobre dinamicamente o período real dos dados
@@ -61,7 +69,8 @@ st.caption(f"FIAP Challenge | Parceria Oracle — Dados SIH/DATASUS, {ini_str} a
 st.header("Seção 1 — Visão Executiva")
 
 # ============================================================
-# KPIs: Total | Últimos 12 meses | YTD | Último mês (todos com comparativo, exceto Total)
+# KPIs: Total | Últimos 12 meses | YTD | Último mês
+# delta_color="inverse": para internações, MENOS é positivo (verde), MAIS é negativo (vermelho)
 # ============================================================
 total_geral = consultar("SELECT total_internacoes FROM VW_KPIS_GERAIS")['TOTAL_INTERNACOES'][0]
 
@@ -112,28 +121,33 @@ col1.metric(
 col2.metric(
     "Últimos 12 Meses",
     fmt_num(ultimos_12),
-    delta=f"{delta_12m:+.1f}% vs. 12 meses anteriores",
+    delta=f"{delta_12m:+.1f}% vs. 12 meses anteriores ({fmt_num(ultimos_12_anterior)})",
+    delta_color="inverse",
     help="Soma dos 12 meses mais recentes disponíveis, comparada com os 12 meses imediatamente anteriores a eles."
 )
 col3.metric(
     f"YTD ({fim_ano})",
     fmt_num(ytd),
-    delta=f"{delta_ytd:+.1f}% vs. YTD {fim_ano - 1}",
-    help=f"Year to Date: soma de janeiro até {fim_mes:02d}/{fim_ano}, comparada ao mesmo intervalo (jan a {fim_mes:02d}) de {fim_ano - 1}."
+    delta=f"{delta_ytd:+.1f}% vs. YTD {fim_ano - 1} ({fmt_num(ytd_anterior)})",
+    delta_color="inverse",
+    help=f"Year to Date: soma de janeiro até {fim_mes:02d}/{fim_ano}, comparada ao mesmo intervalo de {fim_ano - 1}."
 )
 col4.metric(
     f"Último Mês ({fim_str})",
     fmt_num(mes_atual),
-    delta=f"{delta_mes:+.1f}% vs. mês anterior",
+    delta=f"{delta_mes:+.1f}% vs. mês anterior ({fmt_num(mes_anterior)})",
+    delta_color="inverse",
     help="Total do mês mais recente disponível, comparado percentualmente com o mês imediatamente anterior."
 )
 
 # ============================================================
-# Gráfico de evolução: Top 5 regiões (linhas suaves) + Outras + Total
+# Gráfico de evolução: ÍNDICE DE CRESCIMENTO (base 100 no primeiro mês)
+# Resolve o problema de escala (regiões pequenas ficavam esmagadas) e
+# responde diretamente a pergunta "onde está crescendo mais"
 # ============================================================
-st.subheader("📈 Evolução Mensal por Região")
-st.caption("As 5 regiões de maior volume no período, com as demais agrupadas em 'Outras Regiões'. "
-           "Linha pontilhada branca = total geral.")
+st.subheader("📈 Evolução do Crescimento por Região (índice, base 100)")
+st.caption("Cada linha começa em 100 no primeiro mês disponível. Uma linha subindo mais que as outras "
+           "indica crescimento relativo mais rápido — independente do volume absoluto da região.")
 
 top5_regioes = consultar("""
     SELECT nm_regiao_saude FROM VW_VOLUME_REGIAO
@@ -153,28 +167,47 @@ temporal_completo['grupo'] = temporal_completo['NM_REGIAO_SAUDE'].apply(
 )
 temporal_agrupado = temporal_completo.groupby(['competencia', 'grupo'])['QTD_INTERNACOES'].sum().reset_index()
 temporal_total = temporal_completo.groupby('competencia')['QTD_INTERNACOES'].sum().reset_index()
+temporal_total['grupo'] = 'Total Geral'
+temporal_total = temporal_total.rename(columns={'QTD_INTERNACOES': 'QTD_INTERNACOES'})
 
-# Ordena a legenda do maior pro menor volume total no período
-totais_por_grupo = temporal_agrupado.groupby('grupo')['QTD_INTERNACOES'].sum().sort_values(ascending=False)
-ordem_categorias = totais_por_grupo.index.tolist()
+# Junta tudo (regiões + total) e calcula o índice base 100
+base_completa = pd.concat([temporal_agrupado, temporal_total[['competencia', 'grupo', 'QTD_INTERNACOES']]])
+base_completa = base_completa.sort_values('competencia')
+
+def calcular_indice(grupo_df):
+    primeiro_valor = grupo_df.iloc[0]['QTD_INTERNACOES']
+    grupo_df['indice'] = grupo_df['QTD_INTERNACOES'] / primeiro_valor * 100
+    return grupo_df
+
+base_indexada = base_completa.groupby('grupo', group_keys=False).apply(calcular_indice)
+
+# Ordena a legenda pelo crescimento final (quem mais cresceu aparece primeiro)
+crescimento_final = base_indexada.sort_values('competencia').groupby('grupo')['indice'].last().sort_values(ascending=False)
+ordem_categorias = crescimento_final.index.tolist()
 
 fig_evolucao = px.line(
-    temporal_agrupado, x='competencia', y='QTD_INTERNACOES', color='grupo',
+    base_indexada, x='competencia', y='indice', color='grupo',
     category_orders={'grupo': ordem_categorias},
     line_shape='spline'
 )
-fig_evolucao.add_trace(go.Scatter(
-    x=temporal_total['competencia'], y=temporal_total['QTD_INTERNACOES'],
-    mode='lines', name='Total Geral',
-    line=dict(color='white', width=3, dash='dot', shape='spline')
-))
-fig_evolucao.update_layout(legend_title_text='Região (por volume)', hovermode='x unified',
-                            xaxis_title=None, yaxis_title='Internações')
+# Destaca a linha do Total Geral (pontilhada, branca, mais grossa)
+for trace in fig_evolucao.data:
+    if trace.name == 'Total Geral':
+        trace.line.update(color='white', width=3, dash='dot')
+
+fig_evolucao.add_hline(y=100, line_dash='dot', line_color='gray', annotation_text='Base (100)')
+fig_evolucao.update_layout(
+    legend_title_text='Região (por crescimento)', hovermode='x unified',
+    xaxis_title=None, yaxis_title='Índice (base 100)', height=450
+)
 st.plotly_chart(fig_evolucao, use_container_width=True)
 
 # ============================================================
 # Rankings: Top 10 Regiões | Top 10 Causas | Share por Caráter
+# Altura padronizada (height=420) + números compactos (170k, 1,5 Mi)
 # ============================================================
+ALTURA_PADRAO = 420
+
 col_a, col_b, col_c = st.columns(3)
 
 with col_a:
@@ -183,9 +216,12 @@ with col_a:
         SELECT nm_regiao_saude, qtd_internacoes FROM VW_VOLUME_REGIAO
         ORDER BY qtd_internacoes DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD_INTERNACOES')
-    fig = px.bar(regioes, x='QTD_INTERNACOES', y='NM_REGIAO_SAUDE', orientation='h', text='QTD_INTERNACOES')
-    fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-    fig.update_layout(yaxis_title=None, xaxis_title='Internações')
+    regioes['label'] = regioes['QTD_INTERNACOES'].apply(fmt_compacto)
+    fig = px.bar(regioes, x='QTD_INTERNACOES', y='NM_REGIAO_SAUDE', orientation='h', text='label')
+    fig.update_traces(textposition='outside')
+    fig.update_layout(yaxis_title=None, xaxis_title='Internações', height=ALTURA_PADRAO,
+                       yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
+    fig.update_xaxes(tickformat="~s")
     st.plotly_chart(fig, use_container_width=True)
 
 with col_b:
@@ -194,9 +230,12 @@ with col_b:
         SELECT ds_diagnostico, qtd FROM VW_TOP_DIAGNOSTICOS
         ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD')
-    fig = px.bar(diagnosticos, x='QTD', y='DS_DIAGNOSTICO', orientation='h', text='QTD')
-    fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-    fig.update_layout(yaxis_title=None, xaxis_title='Internações')
+    diagnosticos['label'] = diagnosticos['QTD'].apply(fmt_compacto)
+    fig = px.bar(diagnosticos, x='QTD', y='DS_DIAGNOSTICO', orientation='h', text='label')
+    fig.update_traces(textposition='outside')
+    fig.update_layout(yaxis_title=None, xaxis_title='Internações', height=ALTURA_PADRAO,
+                       yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
+    fig.update_xaxes(tickformat="~s")
     st.plotly_chart(fig, use_container_width=True)
 
 with col_c:
@@ -204,9 +243,11 @@ with col_c:
     carater_share = consultar("SELECT ds_carater_internacao, qtd_internacoes FROM VW_MORTALIDADE_CARATER")
     carater_share['pct'] = carater_share['QTD_INTERNACOES'] / carater_share['QTD_INTERNACOES'].sum() * 100
     carater_share = carater_share.sort_values('pct')
-    fig = px.bar(carater_share, x='pct', y='DS_CARATER_INTERNACAO', orientation='h', text='pct')
-    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-    fig.update_layout(xaxis_title='% do total', yaxis_title=None)
+    carater_share['label'] = carater_share['pct'].apply(lambda v: f"{v:.1f}%".replace('.', ','))
+    fig = px.bar(carater_share, x='pct', y='DS_CARATER_INTERNACAO', orientation='h', text='label')
+    fig.update_traces(textposition='outside')
+    fig.update_layout(xaxis_title='% do total', yaxis_title=None, height=ALTURA_PADRAO,
+                       yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
@@ -218,10 +259,12 @@ mortalidade = consultar("""
     SELECT ds_carater_internacao, taxa_mortalidade FROM VW_MORTALIDADE_CARATER
     ORDER BY taxa_mortalidade DESC
 """)
+mortalidade['label'] = mortalidade['TAXA_MORTALIDADE'].apply(lambda v: f"{v:.2f}%".replace('.', ','))
 fig = px.bar(mortalidade.sort_values('TAXA_MORTALIDADE'), x='TAXA_MORTALIDADE', y='DS_CARATER_INTERNACAO',
-             orientation='h', text='TAXA_MORTALIDADE')
-fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
-fig.update_layout(yaxis_title=None, xaxis_title='Taxa de mortalidade (%)')
+             orientation='h', text='label')
+fig.update_traces(textposition='outside')
+fig.update_layout(yaxis_title=None, xaxis_title='Taxa de mortalidade (%)', height=380,
+                   yaxis=dict(automargin=True), margin=dict(l=10, r=40, t=10, b=10))
 st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
@@ -244,5 +287,7 @@ fig_capacidade = px.scatter(
 )
 fig_capacidade.add_vline(x=mediana_x, line_dash='dash', line_color='gray')
 fig_capacidade.add_hline(y=mediana_y, line_dash='dash', line_color='gray')
-fig_capacidade.update_layout(xaxis_title='Volume de Internações', yaxis_title='Internações por Leito (pressão)')
+fig_capacidade.update_layout(xaxis_title='Volume de Internações', yaxis_title='Internações por Leito (pressão)',
+                              height=500, margin=dict(l=10, r=10, t=10, b=10))
+fig_capacidade.update_xaxes(tickformat="~s")
 st.plotly_chart(fig_capacidade, use_container_width=True)
