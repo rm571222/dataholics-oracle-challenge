@@ -33,6 +33,7 @@ st.markdown("""
     border: 1px solid #333;
     border-radius: 10px;
     padding: 15px;
+    min-height: 150px;          /* altura uniforme dos cards */
 }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
 @media (max-width: 640px) {
@@ -44,9 +45,6 @@ h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
 
 # ============================================================
 # CONEXÃO E CONSULTA  (com reconexão automática)
-# A conexão fica em cache_resource, mas o Oracle derruba a sessão por
-# ociosidade/reinício do worker no Streamlit Cloud. Para evitar o erro
-# "not connected" (_check_connected), fazemos ping e reconectamos se cair.
 # ============================================================
 def _nova_conexao():
     wallet_path = "/tmp/wallet"
@@ -69,19 +67,19 @@ def _get_conexao():
     """Devolve uma conexão viva: faz ping e reconecta (limpando o cache) se cair."""
     conn = conectar()
     try:
-        conn.ping()                      # valida a sessão; lança erro se estiver morta
+        conn.ping()
         return conn
     except Exception:
-        conectar.clear()                 # descarta a conexão morta do cache_resource
-        return conectar()                # cria e cacheia uma nova
+        conectar.clear()
+        return conectar()
 
 @st.cache_data(ttl=3600)
 def consultar(query):
-    """Executa a query reaproveitando a conexão; em caso de queda, reconecta 1x e tenta de novo."""
+    """Executa a query reaproveitando a conexão; reconecta 1x e tenta de novo se cair."""
     try:
         return pd.read_sql(query, _get_conexao())
     except oracledb.DatabaseError:
-        conectar.clear()                 # força recriação da conexão
+        conectar.clear()
         return pd.read_sql(query, conectar())
 
 
@@ -170,12 +168,15 @@ ini_str = f"{str(periodo['INI'][0])[4:6]}/{str(periodo['INI'][0])[0:4]}"
 fim_ano, fim_mes = int(str(periodo['FIM'][0])[0:4]), int(str(periodo['FIM'][0])[4:6])
 fim_str = f"{fim_mes:02d}/{fim_ano}"
 data_atualizacao = f"01/{fim_str}"
+# Versões curtas p/ card (Jun/24 a Jun/26)
+_meses_pt = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+ini_curto = f"{_meses_pt[int(str(periodo['INI'][0])[4:6])]}/{str(periodo['INI'][0])[2:4]}"
+fim_curto = f"{_meses_pt[fim_mes]}/{str(fim_ano)[2:4]}"
 
 st.title("🏥 Painel Hospitalar SP — DATAHOLICS")
-st.caption(f"FIAP Challenge | Parceria Oracle — Dados SIH/DATASUS, {ini_str} a {fim_str}  ·  "
-           f"Dados atualizados em: {data_atualizacao}")
+st.caption(f"Dados SIH/DATASUS, {ini_str} a {fim_str} · Dados atualizados até {data_atualizacao}")
 
-st.header("Seção 1 — Visão Executiva")
+st.header("Visão Executiva")
 
 # ============================================================
 # KPIs
@@ -221,7 +222,8 @@ delta_ytd = ((ytd - ytd_anterior) / ytd_anterior * 100) if ytd_anterior else 0
 delta_mes = ((mes_atual - mes_anterior) / mes_anterior * 100) if mes_anterior else 0
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total de Internações (todo o período)", fmt_num(total_geral),
+col1.metric("Total de Internações", fmt_num(total_geral),
+            delta=f"{ini_curto} a {fim_curto}", delta_color="off",
             help=f"Soma de todas as internações registradas no período completo ({ini_str} a {fim_str}).")
 col2.metric("Últimos 12 Meses", fmt_num(ultimos_12),
             delta=f"{fmt_num(delta_12m, 1)}% vs. 12 meses anteriores ({fmt_num(ultimos_12_anterior)})",
@@ -240,8 +242,6 @@ col4.metric(f"Último Mês ({fim_str})", fmt_num(mes_atual),
 # Evolução mensal — 2 painéis empilhados (X compartilhado)
 # ============================================================
 st.subheader("📈 Evolução Mensal de Internações")
-st.caption("Painel superior: total do estado de SP. Painel inferior: as 5 regiões de maior volume — "
-           "eixo em proporção logarítmica para revelar padrões e sazonalidade, com rótulos em volume real.")
 
 top5_regioes = consultar("""
     SELECT nm_regiao_saude FROM VW_VOLUME_REGIAO
@@ -287,7 +287,6 @@ fig_evolucao.add_trace(
 )
 
 # Painel inferior: Top 5 — linhas limpas; rótulo só no último ponto + nome ao lado.
-# Desencontro vertical p/ nomes que se cruzam: verde acima, vermelho meio, roxo abaixo.
 _ult_x_reg = piv.index[-1]
 _desloca_y = {"GRANDE ABC": 1.15, "ALTO DO TIETE": 0.98, "ROTA DOS BANDEIRANTES": 0.82}
 for i, nome in enumerate(top5_regioes):
@@ -300,7 +299,6 @@ for i, nome in enumerate(top5_regioes):
                        hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
             row=2, col=1
         )
-        # Nome + valor no fim; cliponaxis=False deixa transbordar p/ a margem (não corta)
         y_label = ult_valor * _desloca_y.get(nome.upper(), 1.0)
         fig_evolucao.add_trace(
             go.Scatter(x=[_ult_x_reg + pd.Timedelta(days=8)], y=[y_label], mode="text",
@@ -316,8 +314,6 @@ fig_evolucao.update_yaxes(
     type="log", title_text="Internações", row=2, col=1,
     tickmode="array", tickvals=_ticks, ticktext=[fmt_compacto(v) for v in _ticks]
 )
-# Pequeno respiro interno (só p/ afastar os textos da última coluna de dados) +
-# margem direita ampla p/ os rótulos transbordarem sem cortar "Campinas".
 _ticks_x = pd.date_range(start=piv.index.min(), end=piv.index.max(), freq="3MS")
 fig_evolucao.update_xaxes(
     range=[piv.index.min(), piv.index.max() + pd.Timedelta(days=20)],
@@ -326,7 +322,7 @@ fig_evolucao.update_xaxes(
 )
 aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)
 fig_evolucao.update_layout(hovermode="x unified",
-                           margin=dict(l=10, r=230, t=30, b=10))  # r alto = espaço p/ nomes
+                           margin=dict(l=10, r=230, t=30, b=10))
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
 # ============================================================
@@ -367,11 +363,15 @@ with col_c:
 # ============================================================
 # Seção 2 — Pressão Assistencial (BORBOLETA: região no CENTRO)
 # ============================================================
-st.header("Seção 2 — Pressão Assistencial")
+st.header("Pressão Assistencial")
 st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações, "
            "com a quantidade de leitos da região na extremidade esquerda; "
-           "à direita, a pressão sobre a estrutura (internações por leito). "
-           "🔴 Crítico · 🟡 Atenção · 🟢 Estável — pela mediana estadual de pressão.")
+           "à direita, a pressão sobre a estrutura (internações por leito).")
+# Legenda de status centralizada (logo acima do gráfico, como legenda)
+st.markdown(
+    "<div style='text-align:center; color:#CFCFCF; font-size:0.9rem; margin:0.2rem 0 0.6rem;'>"
+    "🔴 Crítico &nbsp;·&nbsp; 🟡 Atenção &nbsp;·&nbsp; 🟢 Estável — pela mediana estadual de pressão."
+    "</div>", unsafe_allow_html=True)
 
 capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
 
@@ -394,7 +394,7 @@ fig_borb = make_subplots(
     subplot_titles=("Internações (volume)", "", "Internações por leito (pressão)")
 )
 
-# Esquerda: barra de internações (log, espelhada) + rótulo de volume no início da barra
+# Esquerda: barra de internações (log, espelhada) + rótulo de volume na ponta
 fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
            marker_color=cores, name="Volume",
@@ -405,7 +405,6 @@ fig_borb.add_trace(
     row=1, col=1
 )
 _ticks_vol = [10000, 50000, 100000, 500000, 1000000]
-# Range explícito (log, espelhado) com folga externa p/ os leitos ficarem FORA do gráfico
 _int_max = float(borb['INTERNACOES'].max())
 _outer = _int_max * 6.0          # borda externa ampla → separa o "1,6 Mi" da coluna de leitos
 _inner = 1500.0                  # borda interna (centro) — base das barras
@@ -415,7 +414,7 @@ fig_borb.update_xaxes(
     ticktext=[fmt_compacto(v) for v in _ticks_vol]
 )
 # nº de leitos FORA do gráfico, na extremidade esquerda (coluna própria, auto-explicativa)
-_x_leitos = _outer * 0.95        # bem na borda esquerda, antes das barras começarem
+_x_leitos = _outer * 0.95
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_leitos] * len(borb), mode="text",
                text=[f"{fmt_num(v)} leitos" for v in borb['LEITOS_REGIAO']],
