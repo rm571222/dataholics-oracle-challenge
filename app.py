@@ -264,30 +264,29 @@ fig_evolucao.add_trace(
 # Rótulo "Total Geral" no FIM da linha (em vez de título/legenda que ficavam apertados)
 _ult_x = temporal_total['competencia'].iloc[-1]
 _ult_y = temporal_total['QTD_INTERNACOES'].iloc[-1]
-fig_evolucao.add_annotation(row=1, col=1, x=_ult_x, y=_ult_y, text="  Total Geral",
+fig_evolucao.add_annotation(row=1, col=1, x=_ult_x, y=_ult_y,
+                            text=f"  Total Geral — {fmt_compacto(_ult_y)}",
                             showarrow=False, xanchor="left", font=dict(color="#FFFFFF", size=12))
 
-# Painel inferior: Top 5 regiões — posição log, rótulos de dados + nome no fim da linha
-# Vermelho (Alto do Tietê) e roxo (Rota dos Bandeirantes) recebem rótulo PARA BAIXO
+# Painel inferior: Top 5 regiões — linha limpa; rótulo SÓ no último ponto + nome ao lado.
+# Pequeno desencontro vertical p/ nomes que se cruzam na faixa baixa (evita sobreposição).
 _ult_x_reg = piv.index[-1]
-_rotulo_abaixo = {"ALTO DO TIETE", "ROTA DOS BANDEIRANTES"}
+_desloca_y = {"ALTO DO TIETE": 0.90, "ROTA DOS BANDEIRANTES": 1.10}  # fator multiplicativo (eixo log)
 for i, nome in enumerate(top5_regioes):
     if nome in piv.columns:
         cor = PALETA[i % len(PALETA)]
-        rotulos_reg = [fmt_compacto(v) for v in piv[nome]]
-        pos_texto = "bottom center" if nome.upper() in _rotulo_abaixo else "top center"
+        ult_valor = piv[nome].iloc[-1]
         fig_evolucao.add_trace(
-            go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines+markers+text",
-                       line=dict(width=2, color=cor), marker=dict(size=4, color=cor),
-                       text=rotulos_reg, textposition=pos_texto,
-                       textfont=dict(size=10, color=cor),   # número na cor da linha
+            go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines",
+                       line=dict(width=2, color=cor),
                        hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
             row=2, col=1
         )
-        # Nome da região no FIM da própria linha (marcador de texto, não sobrepõe o rótulo)
+        # Nome + valor do último ponto, no fim da linha, na cor da série
+        y_label = ult_valor * _desloca_y.get(nome.upper(), 1.0)
         fig_evolucao.add_trace(
-            go.Scatter(x=[_ult_x_reg + pd.Timedelta(days=12)], y=[piv[nome].iloc[-1]],
-                       mode="text", text=[truncar(nome, 24)],
+            go.Scatter(x=[_ult_x_reg + pd.Timedelta(days=12)], y=[y_label],
+                       mode="text", text=[f"{truncar(nome, 24)} — {fmt_compacto(ult_valor)}"],
                        textposition="middle right", textfont=dict(color=cor, size=11),
                        hoverinfo="skip", showlegend=False),
             row=2, col=1
@@ -299,9 +298,9 @@ fig_evolucao.update_yaxes(
     type="log", title_text="Internações", row=2, col=1,
     tickmode="array", tickvals=_ticks, ticktext=[fmt_compacto(v) for v in _ticks]
 )
-# Espaço à direita p/ caber os nomes no fim das linhas
+# Espaço à direita p/ caber "NOME — valor" no fim das linhas (nomes longos)
 fig_evolucao.update_xaxes(range=[piv.index.min(),
-                                 piv.index.max() + pd.Timedelta(days=210)], row=2, col=1)
+                                 piv.index.max() + pd.Timedelta(days=320)], row=2, col=1)
 aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)  # legenda de cima removida
 fig_evolucao.update_layout(hovermode="x unified")
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
