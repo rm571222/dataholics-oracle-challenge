@@ -267,14 +267,25 @@ _ult_y = temporal_total['QTD_INTERNACOES'].iloc[-1]
 fig_evolucao.add_annotation(row=1, col=1, x=_ult_x, y=_ult_y, text="  Total Geral",
                             showarrow=False, xanchor="left", font=dict(color="#FFFFFF", size=12))
 
-# Painel inferior: Top 5 regiões — posição log, rótulos em volume
+# Painel inferior: Top 5 regiões — posição log, rótulos de dados + nome no fim da linha
+_ult_x_reg = piv.index[-1]
 for i, nome in enumerate(top5_regioes):
     if nome in piv.columns:
+        cor = PALETA[i % len(PALETA)]
+        rotulos_reg = [fmt_compacto(v) for v in piv[nome]]
         fig_evolucao.add_trace(
-            go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines",
-                       line=dict(width=2, color=PALETA[i % len(PALETA)]),
+            go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines+markers+text",
+                       line=dict(width=2, color=cor), marker=dict(size=4, color=cor),
+                       text=rotulos_reg, textposition="top center",
+                       textfont=dict(size=10, color="#CFCFCF"),
                        hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
             row=2, col=1
+        )
+        # Nome da região no FIM da própria linha (mesmo padrão do Total Geral)
+        fig_evolucao.add_annotation(
+            row=2, col=1, x=_ult_x_reg, y=piv[nome].iloc[-1],
+            text=f"  {truncar(nome, 22)}", showarrow=False, xanchor="left",
+            font=dict(color=cor, size=11)
         )
 fig_evolucao.update_yaxes(visible=False, showgrid=False, row=1, col=1)
 # Eixo em log, mas mostrando volumes (a cada 10k) — sem expor "log"
@@ -283,10 +294,11 @@ fig_evolucao.update_yaxes(
     type="log", title_text="Internações", row=2, col=1,
     tickmode="array", tickvals=_ticks, ticktext=[fmt_compacto(v) for v in _ticks]
 )
-aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=True)
-fig_evolucao.update_layout(hovermode="x unified",
-                           legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
-                                       title=dict(text="")))
+# Espaço à direita p/ caber os nomes no fim das linhas
+fig_evolucao.update_xaxes(range=[piv.index.min(),
+                                 piv.index.max() + pd.Timedelta(days=75)], row=2, col=1)
+aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)  # legenda de cima removida
+fig_evolucao.update_layout(hovermode="x unified")
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
 # ============================================================
