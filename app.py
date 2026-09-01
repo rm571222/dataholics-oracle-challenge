@@ -174,12 +174,10 @@ temporal_total = temporal_total.rename(columns={'QTD_INTERNACOES': 'QTD_INTERNAC
 base_completa = pd.concat([temporal_agrupado, temporal_total[['competencia', 'grupo', 'QTD_INTERNACOES']]])
 base_completa = base_completa.sort_values('competencia')
 
-def calcular_indice(grupo_df):
-    primeiro_valor = grupo_df.iloc[0]['QTD_INTERNACOES']
-    grupo_df['indice'] = grupo_df['QTD_INTERNACOES'] / primeiro_valor * 100
-    return grupo_df
-
-base_indexada = base_completa.groupby('grupo', group_keys=False).apply(calcular_indice)
+base_completa = base_completa.sort_values(['grupo', 'competencia'])
+primeiro_valor_por_grupo = base_completa.groupby('grupo')['QTD_INTERNACOES'].transform('first')
+base_completa['indice'] = base_completa['QTD_INTERNACOES'] / primeiro_valor_por_grupo * 100
+base_indexada = base_completa
 
 # Ordena a legenda pelo crescimento final (quem mais cresceu aparece primeiro)
 crescimento_final = base_indexada.sort_values('competencia').groupby('grupo')['indice'].last().sort_values(ascending=False)
