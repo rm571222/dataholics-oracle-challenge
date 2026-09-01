@@ -88,6 +88,10 @@ def fmt_num(valor, casas=0):
     s = f"{valor:,.{casas}f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
+def fmt_inteiro(valor):
+    """Arredonda para inteiro com regra 'meio pra cima' (>=0,5 sobe)."""
+    return fmt_num(math.floor(float(valor) + 0.5), 0)
+
 def fmt_compacto(valor):
     if abs(valor) >= 1_000_000:
         return f"{valor/1_000_000:.1f}".replace('.', ',') + " Mi"
@@ -111,7 +115,6 @@ def simplificar_causa(texto):
 
 _MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 def mes_curto(ano, mes):
-    """Retorna 'Jun/26' a partir de ano/mes inteiros."""
     return f"{_MESES_PT[mes]}/{str(ano)[2:4]}"
 
 
@@ -168,17 +171,15 @@ fim_ano, fim_mes = int(str(periodo['FIM'][0])[0:4]), int(str(periodo['FIM'][0])[
 fim_str = f"{fim_mes:02d}/{fim_ano}"
 data_atualizacao = f"01/{fim_str}"
 
-ini_curto = mes_curto(ini_ano, ini_mes)          # Jun/24
-fim_curto = mes_curto(fim_ano, fim_mes)          # Jun/26
-# 12m: mês seguinte a 12 meses atrás, até o fim
+ini_curto = mes_curto(ini_ano, ini_mes)
+fim_curto = mes_curto(fim_ano, fim_mes)
 _ini12_ano = fim_ano - 1
 _ini12_mes = fim_mes + 1
 if _ini12_mes > 12:
     _ini12_mes -= 12
     _ini12_ano += 1
-ini12_curto = mes_curto(_ini12_ano, _ini12_mes)  # Jul/25
-# YTD: Jan do ano final até o mês final
-ytd_ini_curto = mes_curto(fim_ano, 1)            # Jan/26
+ini12_curto = mes_curto(_ini12_ano, _ini12_mes)
+ytd_ini_curto = mes_curto(fim_ano, 1)
 
 st.title("🏥 Painel Hospitalar SP — DATAHOLICS")
 st.caption(f"Dados SIH/DATASUS, {ini_str} a {fim_str} · Dados atualizados até {data_atualizacao}")
@@ -228,7 +229,6 @@ delta_12m = ((ultimos_12 - ultimos_12_anterior) / ultimos_12_anterior * 100) if 
 delta_ytd = ((ytd - ytd_anterior) / ytd_anterior * 100) if ytd_anterior else 0
 delta_mes = ((mes_atual - mes_anterior) / mes_anterior * 100) if mes_anterior else 0
 
-# Card "Total" custom (sem seta), no mesmo estilo dos st.metric
 def card_simples(titulo, valor, rodape):
     return (
         f"<div style='background:#1C1F26; border:1px solid #333; border-radius:10px; "
@@ -343,7 +343,7 @@ fig_evolucao.update_layout(hovermode="x unified", margin=dict(l=10, r=230, t=30,
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
 # ============================================================
-# Rankings: Top 10 Regiões | Top 10 Causas | Share por Caráter
+# Rankings: Top 10 Regiões | Top 10 Causas | Permanência × Óbito
 # ============================================================
 col_a, col_b, col_c = st.columns(3)
 
@@ -378,7 +378,6 @@ with col_c:
         FROM   VW_INTERNACAO_COMPLETA
         GROUP  BY ds_complexidade
     """).sort_values('PERMANENCIA_MEDIA')
-    # Rótulo combina permanência (barra) + taxa de óbito (contexto)
     complexidade['label'] = complexidade.apply(
         lambda r: f"{fmt_num(r['PERMANENCIA_MEDIA'],1)} dias · {fmt_num(r['TAXA_OBITO'],1)}% óbito",
         axis=1
@@ -414,10 +413,10 @@ if 'TAXA_OCUPACAO' not in capacidade_completa.columns:
         / (capacidade_completa['LEITOS_REGIAO'] * _dias_periodo) * 100
     ).round(1)
 
-# Status por LIMIARES ABSOLUTOS de ocupação (benchmarks de gestão hospitalar):
-#   >= 100% sobre-capacidade (Crítico) · 85-100% acima do limite seguro (Atenção) · < 85% (Estável)
-OCUP_CRITICO = 100.0
-OCUP_ATENCAO = 85.0
+# Status por LIMIARES ABSOLUTOS de ocupação:
+#   >= 70% Crítico · 55-70% Atenção · < 55% Estável
+OCUP_CRITICO = 70.0
+OCUP_ATENCAO = 55.0
 def _status(v):
     if v >= OCUP_CRITICO: return "Crítico"
     if v >= OCUP_ATENCAO: return "Atenção"
@@ -428,17 +427,6 @@ n_critico = int((capacidade_completa['status'] == "Crítico").sum())
 n_atencao = int((capacidade_completa['status'] == "Atenção").sum())
 n_estavel = int((capacidade_completa['status'] == "Estável").sum())
 n_total = len(capacidade_completa)
-
-def card_status(cor, emoji, titulo, valor, total):
-    pct = valor / total * 100 if total else 0
-    return (
-        f"<div style='background:#1C1F26; border-left:5px solid {cor}; border-radius:10px; "
-        f"padding:14px 18px;'>"
-        f"<div style='color:#AAB4BF; font-size:0.85rem;'>{emoji} {titulo}</div>"
-        f"<div style='font-size:2rem; font-weight:700; color:#FFFFFF; line-height:1.1;'>{fmt_num(valor)}</div>"
-        f"<div style='color:{cor}; font-size:0.85rem;'>{fmt_num(pct,1)}% das regiões</div>"
-        f"</div>"
-    )
 
 def card_status2(cor, emoji, titulo, valor, total, criterio):
     pct = valor / total * 100 if total else 0
@@ -453,11 +441,11 @@ def card_status2(cor, emoji, titulo, valor, total, criterio):
 
 sc1, sc2, sc3 = st.columns(3)
 sc1.markdown(card_status2(COR_STATUS["Crítico"], "🔴", "Regiões em estado Crítico",
-                          n_critico, n_total, "ocupação ≥ 100%"), unsafe_allow_html=True)
+                          n_critico, n_total, "ocupação ≥ 70%"), unsafe_allow_html=True)
 sc2.markdown(card_status2(COR_STATUS["Atenção"], "🟡", "Regiões em Atenção",
-                          n_atencao, n_total, "ocupação 85–100%"), unsafe_allow_html=True)
+                          n_atencao, n_total, "ocupação 55–70%"), unsafe_allow_html=True)
 sc3.markdown(card_status2(COR_STATUS["Estável"], "🟢", "Regiões Estáveis",
-                          n_estavel, n_total, "ocupação < 85%"), unsafe_allow_html=True)
+                          n_estavel, n_total, "ocupação < 55%"), unsafe_allow_html=True)
 st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
 
 # Ordena por TAXA DE OCUPAÇÃO (métrica-chave) — asc p/ maior ocupação no topo
@@ -511,13 +499,13 @@ fig_borb.add_trace(
            hovertemplate="<b>%{customdata}</b><br>Ocupação: %{x:,.1f}%<extra></extra>"),
     row=1, col=3
 )
-# Pressão (internações/leito) como label secundário na extremidade direita
+# Pressão (internações/leito) como label secundário — número inteiro (arredonda >=0,5)
 _ocup_max = float(borb['TAXA_OCUPACAO'].max())
-_ocup_outer = _ocup_max * 1.45          # headroom p/ o texto da pressão
+_ocup_outer = _ocup_max * 1.45
 _x_pres = _ocup_outer * 0.99
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_pres] * len(borb), mode="text",
-               text=[f"{fmt_num(v,1)} int./leito" for v in borb['INTERNACOES_POR_LEITO']],
+               text=[f"{fmt_inteiro(v)} int./leito" for v in borb['INTERNACOES_POR_LEITO']],
                textposition="middle left", textfont=dict(size=9, color="#8A929B"),
                hoverinfo="skip", showlegend=False),
     row=1, col=3
@@ -527,13 +515,13 @@ fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
 fig_borb.update_xaxes(visible=False, row=1, col=2)
 fig_borb.update_xaxes(showticklabels=False, range=[0, _ocup_outer], row=1, col=3)
-# Linhas de referência: 85% (limite seguro) e 100% (sobre-capacidade)
+# Linhas de referência alinhadas aos thresholds: 55% (Atenção) e 70% (Crítico)
 fig_borb.add_vline(x=OCUP_ATENCAO, line_dash='dot', line_color='#F5A623',
-                   annotation_text="85% (limite seguro)", annotation_position="top",
-                   annotation_font_size=9, row=1, col=3)
+                   annotation_text="55% Atenção", annotation_position="top left",
+                   annotation_font_size=9, annotation_font_color="#F5A623", row=1, col=3)
 fig_borb.add_vline(x=OCUP_CRITICO, line_dash='dash', line_color='#E74C3C',
-                   annotation_text="100% (sobre-capacidade)", annotation_position="top",
-                   annotation_font_size=9, row=1, col=3)
+                   annotation_text="70% Crítico", annotation_position="top right",
+                   annotation_font_size=9, annotation_font_color="#E74C3C", row=1, col=3)
 aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
 fig_borb.update_layout(bargap=0.25)
 for ann in fig_borb.layout.annotations:
