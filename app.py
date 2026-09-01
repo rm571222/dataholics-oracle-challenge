@@ -273,19 +273,23 @@ piv = top5_df.pivot_table(index='competencia', columns='NM_REGIAO_SAUDE',
                           values='QTD_INTERNACOES', aggfunc='sum').sort_index()
 
 fig_evolucao = make_subplots(
-    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.10,
-    row_heights=[0.34, 0.66],
-    subplot_titles=("Total Geral — Estado de SP", "Top 5 Regiões (comparação)")
+    rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+    row_heights=[0.22, 0.78],
+    subplot_titles=("Total Geral — Estado de SP", "Top 5 Regiões (escala log)")
 )
-# Painel superior: Total
+# Painel superior: Total — linha única, com rótulos de dados e SEM eixo Y
+# (compartilha o X com o painel de baixo → dá a impressão de ser o mesmo gráfico)
+rotulos_total = [fmt_compacto(v) for v in temporal_total['QTD_INTERNACOES']]
 fig_evolucao.add_trace(
     go.Scatter(x=temporal_total['competencia'], y=temporal_total['QTD_INTERNACOES'],
-               name="Total Geral", mode="lines", line=dict(color="#FFFFFF", width=3),
-               fill="tozeroy", fillcolor="rgba(255,255,255,0.06)",
+               name="Total Geral", mode="lines+markers+text",
+               line=dict(color="#FFFFFF", width=3), marker=dict(size=4, color="#FFFFFF"),
+               text=rotulos_total, textposition="top center",
+               textfont=dict(size=10, color="#CFCFCF"),
                hovertemplate="Total: %{y:,.0f}<extra></extra>", showlegend=False),
     row=1, col=1
 )
-# Painel inferior: Top 5 regiões
+# Painel inferior: Top 5 regiões em ESCALA LOG (aproxima as linhas → revela sazonalidade)
 for i, nome in enumerate(top5_regioes):
     if nome in piv.columns:
         fig_evolucao.add_trace(
@@ -294,9 +298,10 @@ for i, nome in enumerate(top5_regioes):
                        hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"),
             row=2, col=1
         )
-fig_evolucao.update_yaxes(title_text="Total (SP)", row=1, col=1, rangemode="tozero")
-fig_evolucao.update_yaxes(title_text="Internações", row=2, col=1)
-aplicar_tema(fig_evolucao, altura=CHART_HEIGHT_LG, mostrar_legenda=True)
+# Eixo Y do total: escondido (sem ticks, sem título) para "colar" no de baixo
+fig_evolucao.update_yaxes(visible=False, showgrid=False, row=1, col=1)
+fig_evolucao.update_yaxes(title_text="Internações (log)", type="log", row=2, col=1)
+aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=True)
 fig_evolucao.update_layout(hovermode="x unified")
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
@@ -322,6 +327,11 @@ with col_b:
         SELECT ds_diagnostico, qtd FROM VW_TOP_DIAGNOSTICOS
         ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD')
+    # Substitui rótulos vazios/nan por "Não informado" (só apresentação)
+    diagnosticos['DS_DIAGNOSTICO'] = (
+        diagnosticos['DS_DIAGNOSTICO'].fillna('Não informado')
+        .replace(['nan', 'NaN', 'None', 'null', ''], 'Não informado')
+    )
     diagnosticos['label'] = diagnosticos['QTD'].apply(fmt_compacto)
     fig = barra_horizontal(diagnosticos, 'QTD', 'DS_DIAGNOSTICO', 'label', 'Internações')
     st.plotly_chart(fig, use_container_width=True, key="top_causas")
@@ -337,55 +347,15 @@ with col_c:
     st.plotly_chart(fig, use_container_width=True, key="share_carater")
 
 # ============================================================
-# Achado-chave: Urgência mata mais que Eletivo (com o "so what")
-# Reframe: foco nos 2 caráteres principais + múltiplo de risco em destaque
-# ============================================================
-st.subheader("⚠️ O peso da Urgência: mais volume e mais letal")
-
-mort = consultar("""
-    SELECT ds_carater_internacao, qtd_internacoes, taxa_mortalidade
-    FROM VW_MORTALIDADE_CARATER
-""")
-# Foca nos 2 caráteres de maior volume (tipicamente Urgência e Eletivo)
-principais = mort.sort_values('QTD_INTERNACOES', ascending=False).head(2).reset_index(drop=True)
-
-def _busca(df, chave):
-    m = df[df['DS_CARATER_INTERNACAO'].str.contains(chave, case=False, na=False)]
-    return m.iloc[0] if len(m) else None
-
-urg = _busca(mort, "urg")
-ele = _busca(mort, "eletiv")
-
-c1, c2 = st.columns([1, 2])
-with c1:
-    if urg is not None and ele is not None and ele['TAXA_MORTALIDADE']:
-        multiplo = urg['TAXA_MORTALIDADE'] / ele['TAXA_MORTALIDADE']
-        st.metric(
-            "Risco relativo (Urgência ÷ Eletivo)",
-            f"{fmt_num(multiplo, 1)}x",
-            help="Quantas vezes a mortalidade de internações de urgência é maior que a de eletivas."
-        )
-        st.caption(f"Urgência: **{fmt_num(urg['TAXA_MORTALIDADE'],2)}%**  ·  "
-                   f"Eletivo: **{fmt_num(ele['TAXA_MORTALIDADE'],2)}%**")
-    st.caption("A urgência concentra a maior parte do volume **e** a maior letalidade — "
-               "é onde priorizar leitos, fluxo e retaguarda faz mais diferença.")
-with c2:
-    comp = principais.copy().sort_values('TAXA_MORTALIDADE')
-    comp['label'] = comp['TAXA_MORTALIDADE'].apply(lambda v: f"{v:.2f}%".replace('.', ','))
-    cores = [COR_STATUS["Crítico"] if "urg" in str(n).lower() else PALETA[0]
-             for n in comp['DS_CARATER_INTERNACAO']]
-    fig = barra_horizontal(comp, 'TAXA_MORTALIDADE', 'DS_CARATER_INTERNACAO', 'label',
-                           'Taxa de mortalidade (%)', cores=cores)
-    st.plotly_chart(fig, use_container_width=True, key="mortalidade_foco")
-
-# ============================================================
-# Seção 2 — Pressão Assistencial (versão EXECUTIVA)
-# Ranking de regiões por internações/leito, colorido por status de alerta.
-# (Substitui o scatter técnico volume x pressão x tamanho de bolha.)
+# Seção 2 — Pressão Assistencial (BORBOLETA / TORNADO, 62 regiões)
+#   • Esquerda : Leitos disponíveis (capacidade instalada)
+#   • Direita  : Internações por leito (pressão), colorida por status de alerta
+#   Eixo central compartilhado = nome da região. Ordenado pela pressão.
 # ============================================================
 st.header("Seção 2 — Pressão Assistencial")
-st.caption("Regiões ordenadas pela pressão sobre a estrutura (internações por leito no período). "
-           "🔴 Crítico e 🟡 Atenção indicam onde a demanda mais aperta a capacidade instalada.")
+st.caption("Cada linha é uma região de saúde. À esquerda, a capacidade instalada (leitos); "
+           "à direita, a pressão da demanda (internações por leito). "
+           "🔴 Crítico · 🟡 Atenção · 🟢 Estável — comparados à mediana do estado.")
 
 capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
 
@@ -399,20 +369,46 @@ def _status(v):
 capacidade_completa['status'] = capacidade_completa['INTERNACOES_POR_LEITO'].apply(_status)
 mediana_pressao = capacidade_completa['INTERNACOES_POR_LEITO'].median()
 
-top_pressao = (capacidade_completa
-               .sort_values('INTERNACOES_POR_LEITO', ascending=False)
-               .head(12)
-               .sort_values('INTERNACOES_POR_LEITO'))
-top_pressao['label'] = top_pressao['INTERNACOES_POR_LEITO'].apply(lambda v: fmt_num(v, 1))
+# Ordena por pressão (ascendente → maior pressão fica no TOPO no eixo horizontal)
+borboleta = capacidade_completa.sort_values('INTERNACOES_POR_LEITO', ascending=True).copy()
+borboleta['_ylabel'] = borboleta['NM_REGIAO_SAUDE'].apply(lambda s: truncar(s, 26))
+cores_direita = borboleta['status'].map(COR_STATUS).tolist()
 
-fig_pressao = barra_horizontal(
-    top_pressao, 'INTERNACOES_POR_LEITO', 'NM_REGIAO_SAUDE', 'label',
-    'Internações por leito', altura=CHART_HEIGHT + 40, coluna_status='status'
+# Altura dinâmica p/ caber as 62 regiões sem cortar
+altura_borboleta = max(600, len(borboleta) * 20)
+
+fig_borb = make_subplots(
+    rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.14,
+    subplot_titles=("Leitos disponíveis", "Internações por leito (pressão)")
 )
-fig_pressao.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
-                      annotation_text=f"Mediana ({fmt_num(mediana_pressao,1)})",
-                      annotation_position="top")
-st.plotly_chart(fig_pressao, use_container_width=True, key="pressao")
+# Esquerda: leitos (eixo invertido para crescer da direita p/ esquerda)
+fig_borb.add_trace(
+    go.Bar(y=borboleta['_ylabel'], x=borboleta['LEITOS_REGIAO'], orientation='h',
+           name="Leitos", marker_color="#5B6B7B",
+           text=[fmt_compacto(v) for v in borboleta['LEITOS_REGIAO']],
+           textposition="outside", cliponaxis=False,
+           customdata=borboleta['NM_REGIAO_SAUDE'],
+           hovertemplate="<b>%{customdata}</b><br>Leitos: %{x:,.0f}<extra></extra>"),
+    row=1, col=1
+)
+# Direita: internações por leito (colorida por status)
+fig_borb.add_trace(
+    go.Bar(y=borboleta['_ylabel'], x=borboleta['INTERNACOES_POR_LEITO'], orientation='h',
+           name="Internações/leito", marker_color=cores_direita,
+           text=[fmt_num(v, 1) for v in borboleta['INTERNACOES_POR_LEITO']],
+           textposition="outside", cliponaxis=False,
+           customdata=borboleta['NM_REGIAO_SAUDE'],
+           hovertemplate="<b>%{customdata}</b><br>Internações/leito: %{x:,.1f}<extra></extra>"),
+    row=1, col=2
+)
+fig_borb.update_xaxes(autorange="reversed", row=1, col=1)  # espelha o lado esquerdo
+fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
+                   annotation_text=f"Mediana ({fmt_num(mediana_pressao,1)})",
+                   annotation_position="top", row=1, col=2)
+aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
+fig_borb.update_layout(bargap=0.25)
+fig_borb.update_yaxes(automargin=True)
+st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
 
 # KPIs de apoio da Seção 2
 n_critico = int((capacidade_completa['status'] == "Crítico").sum())
