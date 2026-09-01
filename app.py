@@ -387,21 +387,77 @@ borb = capacidade_completa.sort_values('INTERNACOES_POR_LEITO', ascending=True).
 cores = borb['status'].map(COR_STATUS).tolist()
 altura_borboleta = max(650, len(borb) * 22)
 
+# Cores neutras p/ o Teste 1 (não competem com a escala crítico/atenção/estável)
+COR_INTERNACOES = "#4C9AFF"   # azul
+COR_LEITOS      = "#7F8C9B"   # cinza-azulado
+
+teste_esq = st.radio(
+    "Asa esquerda — como exibir os leitos?",
+    ["Teste 2 · nº de leitos no início da barra (recomendado)",
+     "Teste 1 · internações + leitos empilhados na mesma barra"],
+    horizontal=True, key="toggle_borboleta"
+)
+usar_teste1 = teste_esq.startswith("Teste 1")
+
+titulo_esq = ("Internações + Leitos (volume)" if usar_teste1
+              else "Internações (volume)")
 fig_borb = make_subplots(
     rows=1, cols=3, shared_yaxes=True, horizontal_spacing=0.0,
     column_widths=[0.42, 0.16, 0.42],
-    subplot_titles=("Internações (volume)", "", "Internações por leito (pressão)")
+    subplot_titles=(titulo_esq, "", "Internações por leito (pressão)")
 )
-# Esquerda: volume (log + espelhado, rótulos em volume real)
-fig_borb.add_trace(
-    go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
-           marker_color=cores, name="Volume",
-           text=[fmt_compacto(v) for v in borb['INTERNACOES']],
-           textposition="outside", cliponaxis=False,
-           customdata=borb['NM_REGIAO_SAUDE'],
-           hovertemplate="<b>%{customdata}</b><br>Internações: %{x:,.0f}<extra></extra>"),
-    row=1, col=1
-)
+
+if usar_teste1:
+    # -------- TESTE 1: barra empilhada internações + leitos --------
+    # Empilhamento exige escala LINEAR (log não soma). Leitos ficam pequenos
+    # frente às internações — é a limitação natural da diferença de grandeza.
+    fig_borb.add_trace(
+        go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
+               marker_color=COR_INTERNACOES, name="Internações",
+               customdata=borb['NM_REGIAO_SAUDE'],
+               hovertemplate="<b>%{customdata}</b><br>Internações: %{x:,.0f}<extra></extra>"),
+        row=1, col=1
+    )
+    fig_borb.add_trace(
+        go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['LEITOS_REGIAO'], orientation='h',
+               marker_color=COR_LEITOS, name="Leitos",
+               customdata=borb['NM_REGIAO_SAUDE'],
+               hovertemplate="<b>%{customdata}</b><br>Leitos: %{x:,.0f}<extra></extra>"),
+        row=1, col=1
+    )
+    fig_borb.update_layout(barmode="stack", legend=dict(
+        orientation="h", yanchor="bottom", y=1.02, x=0, title=dict(text="")))
+    fig_borb.update_xaxes(autorange="reversed", row=1, col=1, tickformat="~s")
+    mostrar_legenda_borb = True
+else:
+    # -------- TESTE 2: barra de internações (log) + nº de leitos "no eixo" --------
+    fig_borb.add_trace(
+        go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
+               marker_color=cores, name="Volume",
+               text=[fmt_compacto(v) for v in borb['INTERNACOES']],
+               textposition="outside", cliponaxis=False,
+               customdata=borb['NM_REGIAO_SAUDE'],
+               hovertemplate="<b>%{customdata}</b><br>Internações: %{x:,.0f}<extra></extra>"),
+        row=1, col=1
+    )
+    _ticks_vol = [10000, 50000, 100000, 500000, 1000000]
+    fig_borb.update_xaxes(
+        type="log", autorange="reversed", row=1, col=1,
+        tickmode="array", tickvals=_ticks_vol,
+        ticktext=[fmt_compacto(v) for v in _ticks_vol]
+    )
+    # nº de leitos alinhado no INÍCIO das barras (borda interna, junto ao centro),
+    # formando uma coluna que funciona como um "eixo Y" de leitos.
+    _x_inner = max(_ticks_vol) * 1.6  # ponto fixo na borda interna (lado do centro)
+    fig_borb.add_trace(
+        go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_inner] * len(borb), mode="text",
+                   text=[f"{fmt_num(v)} leitos" for v in borb['LEITOS_REGIAO']],
+                   textposition="middle left", textfont=dict(size=10, color="#AAB4BF"),
+                   hoverinfo="skip", showlegend=False),
+        row=1, col=1
+    )
+    mostrar_legenda_borb = False
+
 # Centro: rótulos das regiões
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[0] * len(borb), mode="text",
@@ -423,20 +479,15 @@ fig_borb.add_trace(
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
-_ticks_vol = [10000, 50000, 100000, 500000, 1000000]
-fig_borb.update_xaxes(
-    type="log", autorange="reversed", row=1, col=1,
-    tickmode="array", tickvals=_ticks_vol,
-    ticktext=[fmt_compacto(v) for v in _ticks_vol]
-)
 fig_borb.update_xaxes(visible=False, row=1, col=2)
 fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
                    annotation_text=f"Mediana: {fmt_num(mediana_pressao,1)}",
                    annotation_position="bottom right", row=1, col=3)
-aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
+aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=mostrar_legenda_borb)
 fig_borb.update_layout(bargap=0.25)
 for ann in fig_borb.layout.annotations:
-    if ann.text in ("Internações (volume)", "Internações por leito (pressão)"):
+    if ann.text in ("Internações (volume)", "Internações + Leitos (volume)",
+                    "Internações por leito (pressão)"):
         ann.yshift = 10
 st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
 
