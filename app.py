@@ -253,7 +253,7 @@ col3.metric(f"YTD ({ytd_ini_curto} a {fim_curto})", fmt_num(ytd),
             delta=f"{fmt_num(delta_ytd, 1)}% vs. YTD {fim_ano - 1} ({fmt_num(ytd_anterior)})",
             delta_color="inverse",
             help=f"Year to Date: soma de janeiro até {fim_mes:02d}/{fim_ano}, comparada ao mesmo intervalo de {fim_ano - 1}.")
-col4.metric(f"Último Mês ({fim_str})", fmt_num(mes_atual),
+col4.metric(f"Último Mês ({fim_curto})", fmt_num(mes_atual),
             delta=f"{fmt_num(delta_mes, 1)}% vs. mês anterior ({fmt_num(mes_anterior)})",
             delta_color="inverse",
             help="Total do mês mais recente, comparado com o mês imediatamente anterior.")
@@ -369,13 +369,25 @@ with col_b:
     st.plotly_chart(fig, use_container_width=True, key="top_causas")
 
 with col_c:
-    st.subheader("🚑 Share por Caráter")
-    carater_share = consultar("SELECT ds_carater_internacao, qtd_internacoes FROM VW_MORTALIDADE_CARATER")
-    carater_share['pct'] = carater_share['QTD_INTERNACOES'] / carater_share['QTD_INTERNACOES'].sum() * 100
-    carater_share = carater_share[carater_share['pct'] >= 1].sort_values('pct')
-    carater_share['label'] = carater_share['pct'].apply(lambda v: f"{v:.1f}%".replace('.', ','))
-    fig = barra_horizontal(carater_share, 'pct', 'DS_CARATER_INTERNACAO', 'label', '% do total')
-    st.plotly_chart(fig, use_container_width=True, key="share_carater")
+    st.subheader("🛏️ Permanência × Óbito por Complexidade")
+    complexidade = consultar("""
+        SELECT ds_complexidade,
+               COUNT(*)                                AS qtd,
+               ROUND(AVG(qt_dias_permanencia), 1)      AS permanencia_media,
+               ROUND(SUM(fl_obito) / COUNT(*) * 100, 2) AS taxa_obito
+        FROM   VW_INTERNACAO_COMPLETA
+        GROUP  BY ds_complexidade
+    """).sort_values('PERMANENCIA_MEDIA')
+    # Rótulo combina permanência (barra) + taxa de óbito (contexto)
+    complexidade['label'] = complexidade.apply(
+        lambda r: f"{fmt_num(r['PERMANENCIA_MEDIA'],1)} dias · {fmt_num(r['TAXA_OBITO'],1)}% óbito",
+        axis=1
+    )
+    fig = barra_horizontal(complexidade, 'PERMANENCIA_MEDIA', 'DS_COMPLEXIDADE', 'label',
+                           'Permanência média (dias)')
+    fig.update_traces(
+        hovertemplate="<b>%{customdata[0]}</b><br>Permanência média: %{x:,.1f} dias<extra></extra>")
+    st.plotly_chart(fig, use_container_width=True, key="permanencia_complexidade")
 
 # ============================================================
 # Seção 2 — Pressão Assistencial (BORBOLETA: região no CENTRO)
