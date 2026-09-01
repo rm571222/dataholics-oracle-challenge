@@ -394,10 +394,24 @@ with col_c:
 # ============================================================
 st.header("Pressão Assistencial")
 st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações, "
-           "com a quantidade de leitos da região na extremidade esquerda; "
-           "à direita, a pressão sobre a estrutura (internações por leito).")
+           "com a quantidade de leitos SUS da região na extremidade esquerda; à direita, a pressão sobre "
+           "a estrutura (internações por leito), com a taxa média de ocupação de leitos na extremidade direita.")
 
 capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
+# Fallback: se a view ainda não tiver TAXA_OCUPACAO, calcula no app (base SUS).
+if 'TAXA_OCUPACAO' not in capacidade_completa.columns:
+    _perm = consultar("""
+        SELECT nm_regiao_saude, SUM(qt_dias_permanencia) AS dias_permanencia
+        FROM   VW_INTERNACAO_COMPLETA GROUP BY nm_regiao_saude
+    """)
+    _n_meses = (periodo['FIM'][0] // 100 * 12 + periodo['FIM'][0] % 100) - \
+               (periodo['INI'][0] // 100 * 12 + periodo['INI'][0] % 100) + 1
+    _dias_periodo = _n_meses * 30.4375
+    capacidade_completa = capacidade_completa.merge(_perm, on='NM_REGIAO_SAUDE', how='left')
+    capacidade_completa['TAXA_OCUPACAO'] = (
+        capacidade_completa['DIAS_PERMANENCIA']
+        / (capacidade_completa['LEITOS_REGIAO'] * _dias_periodo) * 100
+    ).round(1)
 
 q_hi = capacidade_completa['INTERNACOES_POR_LEITO'].quantile(0.66)
 q_lo = capacidade_completa['INTERNACOES_POR_LEITO'].quantile(0.33)
@@ -461,7 +475,7 @@ fig_borb.update_xaxes(
 _x_leitos = _outer * 0.95
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_leitos] * len(borb), mode="text",
-               text=[f"{fmt_num(v)} leitos" for v in borb['LEITOS_REGIAO']],
+               text=[f"{fmt_num(v)} leitos SUS" for v in borb['LEITOS_REGIAO']],
                textposition="middle right", textfont=dict(size=10, color="#AAB4BF"),
                hoverinfo="skip", showlegend=False),
     row=1, col=1
@@ -482,11 +496,22 @@ fig_borb.add_trace(
            hovertemplate="<b>%{customdata}</b><br>Internações/leito: %{x:,.1f}<extra></extra>"),
     row=1, col=3
 )
+# Taxa de ocupação na EXTREMIDADE DIREITA (espelha os "leitos" da esquerda)
+_pres_max = float(borb['INTERNACOES_POR_LEITO'].max())
+_pres_outer = _pres_max * 1.6           # headroom p/ o texto de ocupação
+_x_ocup = _pres_outer * 0.97
+fig_borb.add_trace(
+    go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_ocup] * len(borb), mode="text",
+               text=[f"{fmt_num(v,1)}% ocup." for v in borb['TAXA_OCUPACAO']],
+               textposition="middle left", textfont=dict(size=10, color="#AAB4BF"),
+               hoverinfo="skip", showlegend=False),
+    row=1, col=3
+)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
 fig_borb.update_xaxes(visible=False, row=1, col=2)
-fig_borb.update_xaxes(showticklabels=False, row=1, col=3)
+fig_borb.update_xaxes(showticklabels=False, range=[0, _pres_outer], row=1, col=3)
 fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
                    annotation_text=f"Mediana: {fmt_num(mediana_pressao,1)}",
                    annotation_position="bottom right", row=1, col=3)
@@ -496,3 +521,15 @@ for ann in fig_borb.layout.annotations:
     if ann.text in ("Internações (volume)", "Internações por leito (pressão)"):
         ann.yshift = 10
 st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
+
+# ---- Disclaimer metodológico (rodapé) ----
+st.markdown("<hr style='border:none; border-top:1px solid #333; margin:1.2rem 0 0.6rem;'>",
+            unsafe_allow_html=True)
+st.caption(
+    "ℹ️ **Nota metodológica** — A taxa de ocupação é estimada como "
+    "*(pacientes-dia ÷ leitos-dia) × 100*, onde pacientes-dia = soma dos dias de permanência "
+    "e leitos-dia = leitos SUS × dias do período. Considera apenas **leitos SUS** e internações "
+    "**SIH/DATASUS** (rede pública), por isso pode diferir de indicadores que incluem a rede "
+    "privada ou recortes de pico (ex.: UTI). Valores acima de 100% indicam demanda superior "
+    "à capacidade instalada no período."
+)
