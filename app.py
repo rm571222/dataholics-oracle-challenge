@@ -353,7 +353,7 @@ cores = borb['status'].map(COR_STATUS).tolist()
 altura_borboleta = max(650, len(borb) * 22)
 
 fig_borb = make_subplots(
-    rows=1, cols=3, shared_yaxes=False, horizontal_spacing=0.0,
+    rows=1, cols=3, shared_yaxes=True, horizontal_spacing=0.0,
     column_widths=[0.42, 0.16, 0.42],
     subplot_titles=("Internações (volume)", "", "Internações por leito (pressão)")
 )
@@ -389,13 +389,25 @@ fig_borb.add_trace(
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
-fig_borb.update_xaxes(autorange="reversed", row=1, col=1)      # espelha a asa esquerda
-fig_borb.update_xaxes(visible=False, row=1, col=2)             # coluna central limpa
+
+# Asa esquerda (volume) em escala LOG, mantendo rótulos em volume real (10k, 100k...)
+_ticks_vol = [10000, 50000, 100000, 500000, 1000000]
+fig_borb.update_xaxes(
+    type="log", autorange="reversed", row=1, col=1,          # log + espelhado
+    tickmode="array", tickvals=_ticks_vol,
+    ticktext=[fmt_compacto(v) for v in _ticks_vol]
+)
+fig_borb.update_xaxes(visible=False, row=1, col=2)           # coluna central limpa
+# Linha da mediana (anotação embaixo p/ não colidir com o título do painel)
 fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
-                   annotation_text=f"Mediana ({fmt_num(mediana_pressao,1)})",
-                   annotation_position="top", row=1, col=3)
+                   annotation_text=f"Mediana: {fmt_num(mediana_pressao,1)}",
+                   annotation_position="bottom right", row=1, col=3)
 aplicar_tema(fig_borb, altura=altura_borboleta, mostrar_legenda=False)
 fig_borb.update_layout(bargap=0.25)
+# Sobe um pouco os títulos dos painéis para não encostarem nas barras
+for ann in fig_borb.layout.annotations:
+    if ann.text in ("Internações (volume)", "Internações por leito (pressão)"):
+        ann.yshift = 10
 st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
 
 # KPIs de apoio da Seção 2
