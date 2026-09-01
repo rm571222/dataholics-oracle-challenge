@@ -33,7 +33,7 @@ st.markdown("""
     border: 1px solid #333;
     border-radius: 10px;
     padding: 15px;
-    min-height: 150px;          /* altura uniforme dos cards */
+    min-height: 150px;
 }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
 @media (max-width: 640px) {
@@ -64,7 +64,6 @@ def conectar():
     return _nova_conexao()
 
 def _get_conexao():
-    """Devolve uma conexão viva: faz ping e reconecta (limpando o cache) se cair."""
     conn = conectar()
     try:
         conn.ping()
@@ -75,7 +74,6 @@ def _get_conexao():
 
 @st.cache_data(ttl=3600)
 def consultar(query):
-    """Executa a query reaproveitando a conexão; reconecta 1x e tenta de novo se cair."""
     try:
         return pd.read_sql(query, _get_conexao())
     except oracledb.DatabaseError:
@@ -87,12 +85,10 @@ def consultar(query):
 # UTILITÁRIOS DE FORMATAÇÃO (padrão Brasil)
 # ============================================================
 def fmt_num(valor, casas=0):
-    """Formata número completo no padrão brasileiro: 1.234.567,89"""
     s = f"{valor:,.{casas}f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 def fmt_compacto(valor):
-    """Formata número de forma compacta: 170k, 1,2 Mi"""
     if abs(valor) >= 1_000_000:
         return f"{valor/1_000_000:.1f}".replace('.', ',') + " Mi"
     elif abs(valor) >= 1_000:
@@ -100,12 +96,10 @@ def fmt_compacto(valor):
     return f"{valor:.0f}"
 
 def truncar(label, n=34):
-    """Encurta rótulos longos (nome completo fica no tooltip)."""
     label = str(label)
     return label if len(label) <= n else label[:n - 1] + "…"
 
 def simplificar_causa(texto):
-    """Remove ruído clínico de CID: '... não especificada', 'de localização ...', etc."""
     if texto is None:
         return "Não informado"
     t = str(texto).strip()
@@ -114,6 +108,11 @@ def simplificar_causa(texto):
     t = re.sub(r",?\s*(de\s+\w+\s+)?n[ãa]o\s+especificad[oa].*$", "", t, flags=re.IGNORECASE)
     t = t.strip(" ,;")
     return t if t else "Não informado"
+
+_MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+def mes_curto(ano, mes):
+    """Retorna 'Jun/26' a partir de ano/mes inteiros."""
+    return f"{_MESES_PT[mes]}/{str(ano)[2:4]}"
 
 
 # ============================================================
@@ -141,7 +140,6 @@ def aplicar_tema(fig, altura=CHART_HEIGHT, mostrar_legenda=True):
     return fig
 
 def barra_horizontal(df, x, y_full, texto, titulo_x, altura=CHART_HEIGHT, cores=None):
-    """Fábrica única de barras horizontais. Trunca rótulo, mantém nome completo no hover."""
     df = df.copy()
     df["_ylabel"] = df[y_full].apply(truncar)
     ordem = df["_ylabel"].tolist()
@@ -165,13 +163,22 @@ periodo = consultar("""
     FROM VW_INTERNACAO_COMPLETA
 """)
 ini_str = f"{str(periodo['INI'][0])[4:6]}/{str(periodo['INI'][0])[0:4]}"
+ini_ano, ini_mes = int(str(periodo['INI'][0])[0:4]), int(str(periodo['INI'][0])[4:6])
 fim_ano, fim_mes = int(str(periodo['FIM'][0])[0:4]), int(str(periodo['FIM'][0])[4:6])
 fim_str = f"{fim_mes:02d}/{fim_ano}"
 data_atualizacao = f"01/{fim_str}"
-# Versões curtas p/ card (Jun/24 a Jun/26)
-_meses_pt = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
-ini_curto = f"{_meses_pt[int(str(periodo['INI'][0])[4:6])]}/{str(periodo['INI'][0])[2:4]}"
-fim_curto = f"{_meses_pt[fim_mes]}/{str(fim_ano)[2:4]}"
+
+ini_curto = mes_curto(ini_ano, ini_mes)          # Jun/24
+fim_curto = mes_curto(fim_ano, fim_mes)          # Jun/26
+# 12m: mês seguinte a 12 meses atrás, até o fim
+_ini12_ano = fim_ano - 1
+_ini12_mes = fim_mes + 1
+if _ini12_mes > 12:
+    _ini12_mes -= 12
+    _ini12_ano += 1
+ini12_curto = mes_curto(_ini12_ano, _ini12_mes)  # Jul/25
+# YTD: Jan do ano final até o mês final
+ytd_ini_curto = mes_curto(fim_ano, 1)            # Jan/26
 
 st.title("🏥 Painel Hospitalar SP — DATAHOLICS")
 st.caption(f"Dados SIH/DATASUS, {ini_str} a {fim_str} · Dados atualizados até {data_atualizacao}")
@@ -221,15 +228,28 @@ delta_12m = ((ultimos_12 - ultimos_12_anterior) / ultimos_12_anterior * 100) if 
 delta_ytd = ((ytd - ytd_anterior) / ytd_anterior * 100) if ytd_anterior else 0
 delta_mes = ((mes_atual - mes_anterior) / mes_anterior * 100) if mes_anterior else 0
 
+# Card "Total" custom (sem seta), no mesmo estilo dos st.metric
+def card_simples(titulo, valor, rodape):
+    return (
+        f"<div style='background:#1C1F26; border:1px solid #333; border-radius:10px; "
+        f"padding:15px; min-height:150px;'>"
+        f"<div style='color:#AAB4BF; font-size:0.9rem;'>{titulo}</div>"
+        f"<div style='font-size:2.3rem; font-weight:700; color:#FFFFFF; line-height:1.2; "
+        f"margin-top:0.2rem;'>{valor}</div>"
+        f"<div style='color:#AAB4BF; font-size:0.85rem; margin-top:0.4rem;'>{rodape}</div>"
+        f"</div>"
+    )
+
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total de Internações", fmt_num(total_geral),
-            delta=f"{ini_curto} a {fim_curto}", delta_color="off",
-            help=f"Soma de todas as internações registradas no período completo ({ini_str} a {fim_str}).")
-col2.metric("Últimos 12 Meses", fmt_num(ultimos_12),
+col1.markdown(
+    card_simples("Total de Internações", fmt_num(total_geral), f"{ini_curto} a {fim_curto}"),
+    unsafe_allow_html=True
+)
+col2.metric(f"Últimos 12 Meses ({ini12_curto} a {fim_curto})", fmt_num(ultimos_12),
             delta=f"{fmt_num(delta_12m, 1)}% vs. 12 meses anteriores ({fmt_num(ultimos_12_anterior)})",
             delta_color="inverse",
             help="Soma dos 12 meses mais recentes, comparada com os 12 meses imediatamente anteriores.")
-col3.metric(f"YTD ({fim_ano})", fmt_num(ytd),
+col3.metric(f"YTD ({ytd_ini_curto} a {fim_curto})", fmt_num(ytd),
             delta=f"{fmt_num(delta_ytd, 1)}% vs. YTD {fim_ano - 1} ({fmt_num(ytd_anterior)})",
             delta_color="inverse",
             help=f"Year to Date: soma de janeiro até {fim_mes:02d}/{fim_ano}, comparada ao mesmo intervalo de {fim_ano - 1}.")
@@ -265,7 +285,6 @@ fig_evolucao = make_subplots(
     rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
     row_heights=[0.22, 0.78], subplot_titles=("", "Top 5 Regiões")
 )
-# Painel superior: Total (linha única, sem eixo Y, rótulos por ponto + nome/valor no fim)
 rotulos_total = [fmt_compacto(v) for v in temporal_total['QTD_INTERNACOES']]
 fig_evolucao.add_trace(
     go.Scatter(x=temporal_total['competencia'], y=temporal_total['QTD_INTERNACOES'],
@@ -286,7 +305,6 @@ fig_evolucao.add_trace(
     row=1, col=1
 )
 
-# Painel inferior: Top 5 — linhas limpas; rótulo só no último ponto + nome ao lado.
 _ult_x_reg = piv.index[-1]
 _desloca_y = {"GRANDE ABC": 1.15, "ALTO DO TIETE": 0.98, "ROTA DOS BANDEIRANTES": 0.82}
 for i, nome in enumerate(top5_regioes):
@@ -321,8 +339,7 @@ fig_evolucao.update_xaxes(
     ticktext=[d.strftime("%b %Y") for d in _ticks_x], row=2, col=1
 )
 aplicar_tema(fig_evolucao, altura=560, mostrar_legenda=False)
-fig_evolucao.update_layout(hovermode="x unified",
-                           margin=dict(l=10, r=230, t=30, b=10))
+fig_evolucao.update_layout(hovermode="x unified", margin=dict(l=10, r=230, t=30, b=10))
 st.plotly_chart(fig_evolucao, use_container_width=True, key="evolucao")
 
 # ============================================================
@@ -367,11 +384,6 @@ st.header("Pressão Assistencial")
 st.caption("Cada linha é uma região de saúde (nome ao centro). À esquerda, o volume de internações, "
            "com a quantidade de leitos da região na extremidade esquerda; "
            "à direita, a pressão sobre a estrutura (internações por leito).")
-# Legenda de status centralizada (logo acima do gráfico, como legenda)
-st.markdown(
-    "<div style='text-align:center; color:#CFCFCF; font-size:0.9rem; margin:0.2rem 0 0.6rem;'>"
-    "🔴 Crítico &nbsp;·&nbsp; 🟡 Atenção &nbsp;·&nbsp; 🟢 Estável — pela mediana estadual de pressão."
-    "</div>", unsafe_allow_html=True)
 
 capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
 
@@ -384,6 +396,31 @@ def _status(v):
 capacidade_completa['status'] = capacidade_completa['INTERNACOES_POR_LEITO'].apply(_status)
 mediana_pressao = capacidade_completa['INTERNACOES_POR_LEITO'].median()
 
+n_critico = int((capacidade_completa['status'] == "Crítico").sum())
+n_atencao = int((capacidade_completa['status'] == "Atenção").sum())
+n_estavel = int((capacidade_completa['status'] == "Estável").sum())
+n_total = len(capacidade_completa)
+
+def card_status(cor, emoji, titulo, valor, total):
+    pct = valor / total * 100 if total else 0
+    return (
+        f"<div style='background:#1C1F26; border-left:5px solid {cor}; border-radius:10px; "
+        f"padding:14px 18px;'>"
+        f"<div style='color:#AAB4BF; font-size:0.85rem;'>{emoji} {titulo}</div>"
+        f"<div style='font-size:2rem; font-weight:700; color:#FFFFFF; line-height:1.1;'>{fmt_num(valor)}</div>"
+        f"<div style='color:{cor}; font-size:0.85rem;'>{fmt_num(pct,1)}% das regiões</div>"
+        f"</div>"
+    )
+
+sc1, sc2, sc3 = st.columns(3)
+sc1.markdown(card_status(COR_STATUS["Crítico"], "🔴", "Regiões em estado Crítico", n_critico, n_total),
+             unsafe_allow_html=True)
+sc2.markdown(card_status(COR_STATUS["Atenção"], "🟡", "Regiões em Atenção", n_atencao, n_total),
+             unsafe_allow_html=True)
+sc3.markdown(card_status(COR_STATUS["Estável"], "🟢", "Regiões Estáveis", n_estavel, n_total),
+             unsafe_allow_html=True)
+st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
+
 borb = capacidade_completa.sort_values('INTERNACOES_POR_LEITO', ascending=True).copy()
 cores = borb['status'].map(COR_STATUS).tolist()
 altura_borboleta = max(650, len(borb) * 22)
@@ -393,8 +430,6 @@ fig_borb = make_subplots(
     column_widths=[0.42, 0.16, 0.42],
     subplot_titles=("Internações (volume)", "", "Internações por leito (pressão)")
 )
-
-# Esquerda: barra de internações (log, espelhada) + rótulo de volume na ponta
 fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES'], orientation='h',
            marker_color=cores, name="Volume",
@@ -404,16 +439,13 @@ fig_borb.add_trace(
            hovertemplate="<b>%{customdata}</b><br>Internações: %{x:,.0f}<extra></extra>"),
     row=1, col=1
 )
-_ticks_vol = [10000, 50000, 100000, 500000, 1000000]
 _int_max = float(borb['INTERNACOES'].max())
-_outer = _int_max * 6.0          # borda externa ampla → separa o "1,6 Mi" da coluna de leitos
-_inner = 1500.0                  # borda interna (centro) — base das barras
+_outer = _int_max * 6.0
+_inner = 1500.0
 fig_borb.update_xaxes(
     type="log", range=[math.log10(_outer), math.log10(_inner)], row=1, col=1,
-    tickmode="array", tickvals=_ticks_vol,
-    ticktext=[fmt_compacto(v) for v in _ticks_vol]
+    showticklabels=False
 )
-# nº de leitos FORA do gráfico, na extremidade esquerda (coluna própria, auto-explicativa)
 _x_leitos = _outer * 0.95
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[_x_leitos] * len(borb), mode="text",
@@ -422,8 +454,6 @@ fig_borb.add_trace(
                hoverinfo="skip", showlegend=False),
     row=1, col=1
 )
-
-# Centro: rótulos das regiões
 fig_borb.add_trace(
     go.Scatter(y=borb['NM_REGIAO_SAUDE'], x=[0] * len(borb), mode="text",
                text=[truncar(n, 24) for n in borb['NM_REGIAO_SAUDE']],
@@ -431,7 +461,6 @@ fig_borb.add_trace(
                hoverinfo="skip", showlegend=False),
     row=1, col=2
 )
-# Direita: pressão
 fig_borb.add_trace(
     go.Bar(y=borb['NM_REGIAO_SAUDE'], x=borb['INTERNACOES_POR_LEITO'], orientation='h',
            marker_color=cores, name="Pressão",
@@ -445,6 +474,7 @@ fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=1)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 fig_borb.update_yaxes(showticklabels=False, showgrid=False, row=1, col=3)
 fig_borb.update_xaxes(visible=False, row=1, col=2)
+fig_borb.update_xaxes(showticklabels=False, row=1, col=3)
 fig_borb.add_vline(x=mediana_pressao, line_dash='dash', line_color='gray',
                    annotation_text=f"Mediana: {fmt_num(mediana_pressao,1)}",
                    annotation_position="bottom right", row=1, col=3)
@@ -454,11 +484,3 @@ for ann in fig_borb.layout.annotations:
     if ann.text in ("Internações (volume)", "Internações por leito (pressão)"):
         ann.yshift = 10
 st.plotly_chart(fig_borb, use_container_width=True, key="borboleta")
-
-n_critico = int((capacidade_completa['status'] == "Crítico").sum())
-n_atencao = int((capacidade_completa['status'] == "Atenção").sum())
-n_estavel = int((capacidade_completa['status'] == "Estável").sum())
-k1, k2, k3 = st.columns(3)
-k1.metric("🔴 Regiões em estado Crítico", fmt_num(n_critico))
-k2.metric("🟡 Regiões em Atenção", fmt_num(n_atencao))
-k3.metric("🟢 Regiões Estáveis", fmt_num(n_estavel))
