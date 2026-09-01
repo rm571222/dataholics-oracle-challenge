@@ -43,7 +43,7 @@ def fmt_num(valor, casas=0):
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # ============================================================
-# Descobre dinamicamente o período real dos dados (não fixo no código)
+# Descobre dinamicamente o período real dos dados
 # ============================================================
 periodo = consultar("""
     SELECT MIN(nr_ano_competencia*100+nr_mes_competencia) AS ini,
@@ -61,7 +61,7 @@ st.caption(f"FIAP Challenge | Parceria Oracle — Dados SIH/DATASUS, {ini_str} a
 st.header("Seção 1 — Visão Executiva")
 
 # ============================================================
-# KPIs: Total | Últimos 12 meses | YTD | Último mês (com comparativo)
+# KPIs: Total | Últimos 12 meses | YTD | Último mês (todos com comparativo, exceto Total)
 # ============================================================
 total_geral = consultar("SELECT total_internacoes FROM VW_KPIS_GERAIS")['TOTAL_INTERNACOES'][0]
 
@@ -71,9 +71,20 @@ ultimos_12 = consultar(f"""
           ({periodo['FIM'][0]} - 100) + 1 AND {periodo['FIM'][0]}
 """)['QTD'][0]
 
+ultimos_12_anterior = consultar(f"""
+    SELECT COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA
+    WHERE (nr_ano_competencia*100+nr_mes_competencia) BETWEEN
+          ({periodo['FIM'][0]} - 200) + 1 AND ({periodo['FIM'][0]} - 100)
+""")['QTD'][0]
+
 ytd = consultar(f"""
     SELECT COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA
     WHERE nr_ano_competencia = {fim_ano} AND nr_mes_competencia <= {fim_mes}
+""")['QTD'][0]
+
+ytd_anterior = consultar(f"""
+    SELECT COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA
+    WHERE nr_ano_competencia = {fim_ano - 1} AND nr_mes_competencia <= {fim_mes}
 """)['QTD'][0]
 
 mes_atual = consultar(f"""
@@ -88,7 +99,9 @@ mes_anterior = consultar(f"""
     WHERE nr_ano_competencia = {mes_anterior_ano} AND nr_mes_competencia = {mes_anterior_mes}
 """)['QTD'][0]
 
-delta_pct = ((mes_atual - mes_anterior) / mes_anterior * 100) if mes_anterior else 0
+delta_12m = ((ultimos_12 - ultimos_12_anterior) / ultimos_12_anterior * 100) if ultimos_12_anterior else 0
+delta_ytd = ((ytd - ytd_anterior) / ytd_anterior * 100) if ytd_anterior else 0
+delta_mes = ((mes_atual - mes_anterior) / mes_anterior * 100) if mes_anterior else 0
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(
@@ -99,25 +112,28 @@ col1.metric(
 col2.metric(
     "Últimos 12 Meses",
     fmt_num(ultimos_12),
-    help=f"Internações somadas nos 12 meses mais recentes disponíveis (até {fim_str})."
+    delta=f"{delta_12m:+.1f}% vs. 12 meses anteriores",
+    help="Soma dos 12 meses mais recentes disponíveis, comparada com os 12 meses imediatamente anteriores a eles."
 )
 col3.metric(
     f"YTD ({fim_ano})",
     fmt_num(ytd),
-    help=f"Year to Date: soma de internações de janeiro de {fim_ano} até o mês mais recente disponível ({fim_str})."
+    delta=f"{delta_ytd:+.1f}% vs. YTD {fim_ano - 1}",
+    help=f"Year to Date: soma de janeiro até {fim_mes:02d}/{fim_ano}, comparada ao mesmo intervalo (jan a {fim_mes:02d}) de {fim_ano - 1}."
 )
 col4.metric(
     f"Último Mês ({fim_str})",
     fmt_num(mes_atual),
-    delta=f"{delta_pct:+.1f}% vs. mês anterior",
+    delta=f"{delta_mes:+.1f}% vs. mês anterior",
     help="Total do mês mais recente disponível, comparado percentualmente com o mês imediatamente anterior."
 )
 
 # ============================================================
-# Gráfico de evolução: Top 5 regiões (área empilhada) + Outras + Total
+# Gráfico de evolução: Top 5 regiões (linhas suaves) + Outras + Total
 # ============================================================
 st.subheader("📈 Evolução Mensal por Região")
-st.caption("Composição do volume mensal: as 5 regiões de maior volume no período, agrupando as demais em 'Outras'.")
+st.caption("As 5 regiões de maior volume no período, com as demais agrupadas em 'Outras Regiões'. "
+           "Linha pontilhada branca = total geral.")
 
 top5_regioes = consultar("""
     SELECT nm_regiao_saude FROM VW_VOLUME_REGIAO
@@ -138,15 +154,22 @@ temporal_completo['grupo'] = temporal_completo['NM_REGIAO_SAUDE'].apply(
 temporal_agrupado = temporal_completo.groupby(['competencia', 'grupo'])['QTD_INTERNACOES'].sum().reset_index()
 temporal_total = temporal_completo.groupby('competencia')['QTD_INTERNACOES'].sum().reset_index()
 
-fig_evolucao = px.area(
+# Ordena a legenda do maior pro menor volume total no período
+totais_por_grupo = temporal_agrupado.groupby('grupo')['QTD_INTERNACOES'].sum().sort_values(ascending=False)
+ordem_categorias = totais_por_grupo.index.tolist()
+
+fig_evolucao = px.line(
     temporal_agrupado, x='competencia', y='QTD_INTERNACOES', color='grupo',
-    title=None
+    category_orders={'grupo': ordem_categorias},
+    line_shape='spline'
 )
 fig_evolucao.add_trace(go.Scatter(
     x=temporal_total['competencia'], y=temporal_total['QTD_INTERNACOES'],
-    mode='lines', name='Total Geral', line=dict(color='white', width=3, dash='dot')
+    mode='lines', name='Total Geral',
+    line=dict(color='white', width=3, dash='dot', shape='spline')
 ))
-fig_evolucao.update_layout(legend_title_text='Região', hovermode='x unified')
+fig_evolucao.update_layout(legend_title_text='Região (por volume)', hovermode='x unified',
+                            xaxis_title=None, yaxis_title='Internações')
 st.plotly_chart(fig_evolucao, use_container_width=True)
 
 # ============================================================
@@ -160,9 +183,9 @@ with col_a:
         SELECT nm_regiao_saude, qtd_internacoes FROM VW_VOLUME_REGIAO
         ORDER BY qtd_internacoes DESC FETCH FIRST 10 ROWS ONLY
     """).sort_values('QTD_INTERNACOES')
-    fig = px.bar(regioes, x='QTD_INTERNACOES', y='NM_REGIAO_SAUDE', orientation='h',
-                 text='QTD_INTERNACOES')
+    fig = px.bar(regioes, x='QTD_INTERNACOES', y='NM_REGIAO_SAUDE', orientation='h', text='QTD_INTERNACOES')
     fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+    fig.update_layout(yaxis_title=None, xaxis_title='Internações')
     st.plotly_chart(fig, use_container_width=True)
 
 with col_b:
@@ -173,17 +196,21 @@ with col_b:
     """).sort_values('QTD')
     fig = px.bar(diagnosticos, x='QTD', y='DS_DIAGNOSTICO', orientation='h', text='QTD')
     fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
+    fig.update_layout(yaxis_title=None, xaxis_title='Internações')
     st.plotly_chart(fig, use_container_width=True)
 
 with col_c:
     st.subheader("🚑 Share por Caráter de Internação")
-    carater = consultar("SELECT ds_carater_internacao, qtd_internacoes FROM VW_MORTALIDADE_CARATER")
-    fig = px.pie(carater, names='DS_CARATER_INTERNACAO', values='QTD_INTERNACOES', hole=0.4)
-    fig.update_traces(textinfo='percent+label')
+    carater_share = consultar("SELECT ds_carater_internacao, qtd_internacoes FROM VW_MORTALIDADE_CARATER")
+    carater_share['pct'] = carater_share['QTD_INTERNACOES'] / carater_share['QTD_INTERNACOES'].sum() * 100
+    carater_share = carater_share.sort_values('pct')
+    fig = px.bar(carater_share, x='pct', y='DS_CARATER_INTERNACAO', orientation='h', text='pct')
+    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+    fig.update_layout(xaxis_title='% do total', yaxis_title=None)
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# Mortalidade por caráter (mantido, mas com rótulo)
+# Mortalidade por caráter de internação (achado-chave)
 # ============================================================
 st.subheader("⚠️ Mortalidade por Caráter de Internação")
 st.caption("Achado-chave do projeto: internações de urgência têm mortalidade significativamente maior que eletivas.")
@@ -194,18 +221,28 @@ mortalidade = consultar("""
 fig = px.bar(mortalidade.sort_values('TAXA_MORTALIDADE'), x='TAXA_MORTALIDADE', y='DS_CARATER_INTERNACAO',
              orientation='h', text='TAXA_MORTALIDADE')
 fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
+fig.update_layout(yaxis_title=None, xaxis_title='Taxa de mortalidade (%)')
 st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# Seção 2 (mantida como estava — ajustes na Sprint C)
+# Seção 2 — Capacidade Instalada (dispersão: volume x pressão)
 # ============================================================
 st.header("Seção 2 — Capacidade Instalada")
-capacidade = consultar("""
-    SELECT nm_regiao_saude, internacoes_por_leito FROM VW_CAPACIDADE_REGIAO
-    ORDER BY internacoes_por_leito DESC FETCH FIRST 10 ROWS ONLY
-""")
-fig = px.bar(capacidade.sort_values('INTERNACOES_POR_LEITO'), x='INTERNACOES_POR_LEITO', y='NM_REGIAO_SAUDE',
-             orientation='h', text='INTERNACOES_POR_LEITO',
-             color='INTERNACOES_POR_LEITO', color_continuous_scale='RdYlGn_r')
-fig.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-st.plotly_chart(fig, use_container_width=True)
+st.caption("Cada bolha é uma região de saúde. Eixo X = volume de internações. Eixo Y = pressão sobre a "
+           "capacidade (internações por leito). Tamanho da bolha = quantidade de leitos disponíveis. "
+           "Regiões no canto superior direito (muito volume + muita pressão) são as realmente críticas — "
+           "alta pressão com baixo volume pode ser só efeito de escala pequena, não um problema real de capacidade.")
+
+capacidade_completa = consultar("SELECT * FROM VW_CAPACIDADE_REGIAO")
+mediana_x = capacidade_completa['INTERNACOES'].median()
+mediana_y = capacidade_completa['INTERNACOES_POR_LEITO'].median()
+
+fig_capacidade = px.scatter(
+    capacidade_completa, x='INTERNACOES', y='INTERNACOES_POR_LEITO',
+    size='LEITOS_REGIAO', color='INTERNACOES_POR_LEITO', color_continuous_scale='RdYlGn_r',
+    hover_name='NM_REGIAO_SAUDE'
+)
+fig_capacidade.add_vline(x=mediana_x, line_dash='dash', line_color='gray')
+fig_capacidade.add_hline(y=mediana_y, line_dash='dash', line_color='gray')
+fig_capacidade.update_layout(xaxis_title='Volume de Internações', yaxis_title='Internações por Leito (pressão)')
+st.plotly_chart(fig_capacidade, use_container_width=True)
