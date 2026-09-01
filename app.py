@@ -95,6 +95,9 @@ def carregar_hospitais():
         FROM   VW_HOSPITAL_PERMANENCIA
         WHERE  latitude IS NOT NULL AND longitude IS NOT NULL
     """)
+    # Defesa: remove aspas que vêm do CAST do JSON (ex.: "MUNICIPAL" -> MUNICIPAL)
+    df['ESFERA_ADMIN'] = (df['ESFERA_ADMIN'].astype(str)
+                          .str.replace('"', '', regex=False).str.strip())
     return df
 
 hosp = carregar_hospitais()
