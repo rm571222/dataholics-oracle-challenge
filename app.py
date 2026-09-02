@@ -23,13 +23,19 @@ _MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", 
 
 st.markdown("""
 <style>
-.block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px;
+.block-container, [data-testid="stAppViewBlockContainer"] {
+    padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px;
     margin-left: auto !important; margin-right: auto !important; }
+[data-testid="stMainBlockContainer"] { margin-left: auto !important; margin-right: auto !important; }
 [data-testid="stMetric"] { background:#1C1F26; border:1px solid #333; border-radius:10px;
     padding:15px; min-height:120px; }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
 section[data-testid="stSidebar"] { min-width: 330px; }
 .sec-divider { border:none; border-top:2px solid #2A2E37; margin:2.2rem 0 1rem; }
+/* Separação vertical entre os 3 gráficos do Perfil da Demanda */
+.trio-col { border-right:1px solid #2A2E37; padding:0 14px; }
+.trio-col:last-child { border-right:none; }
+.trio-col h3 { text-align:center; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,18 +129,24 @@ def aplicar_tema(fig, altura=CHART_HEIGHT, legenda=False):
     fig.update_yaxes(gridcolor="rgba(255,255,255,0.08)", zeroline=False)
     return fig
 
-def barra_h(df, x, y_full, texto, titulo_x, altura=CHART_HEIGHT, cores=None):
+def barra_h(df, x, y_full, texto, titulo_x=None, altura=CHART_HEIGHT, cores=None,
+            eixo_x=True, ordem_cat=None):
+    """Barra horizontal padronizada. eixo_x=False esconde os ticks/título do eixo X."""
     d = df.copy()
     d["_y"] = d[y_full].apply(truncar)
-    ordem = d["_y"].tolist()
+    ordem = ordem_cat if ordem_cat is not None else d["_y"].tolist()
     fig = px.bar(d, x=x, y="_y", orientation="h", text=texto, custom_data=[y_full])
     if cores is not None:
         fig.update_traces(marker_color=cores)
-    fig.update_traces(textposition="outside", cliponaxis=False,
-                      hovertemplate="<b>%{customdata[0]}</b><br>%{x:,.1f}<extra></extra>")
-    fig.update_layout(yaxis_title=None, xaxis_title=titulo_x,
+    fig.update_traces(textposition="inside", insidetextanchor="end",
+                      textfont=dict(color="#FFFFFF", size=11), cliponaxis=False,
+                      hovertemplate="<b>%{customdata[0]}</b><br>%{x:,.0f}<extra></extra>")
+    fig.update_layout(yaxis_title=None, xaxis_title=(titulo_x if eixo_x else None),
                       yaxis=dict(automargin=True, categoryorder="array", categoryarray=ordem))
+    if not eixo_x:
+        fig.update_xaxes(showticklabels=False, showgrid=False)
     aplicar_tema(fig, altura=altura)
+    fig.update_layout(margin=dict(l=10, r=15, t=30, b=10))
     return fig
 
 def status_ocup(v):
@@ -326,22 +338,27 @@ if kpi == 0:
 
 ca, cb, cc = st.columns(3)
 with ca:
+    st.markdown("<div class='trio-col'>", unsafe_allow_html=True)
     st.subheader("🏙️ Top 10 Regiões")
     d = consultar(f"""SELECT nm_regiao_saude, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
         GROUP BY nm_regiao_saude ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
     d['label'] = d['QTD'].apply(fmt_compacto)
-    st.plotly_chart(barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', 'Internações'),
+    st.plotly_chart(barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', eixo_x=False),
                     use_container_width=True, key="top_reg")
+    st.markdown("</div>", unsafe_allow_html=True)
 with cb:
+    st.markdown("<div class='trio-col'>", unsafe_allow_html=True)
     st.subheader("🩺 Top 10 Causas")
     d = consultar(f"""SELECT ds_diagnostico, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
         GROUP BY ds_diagnostico ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
     d['DS_DIAGNOSTICO'] = d['DS_DIAGNOSTICO'].apply(simplificar_causa)
     d['label'] = d['QTD'].apply(fmt_compacto)
-    st.plotly_chart(barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', 'Internações'),
+    st.plotly_chart(barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', eixo_x=False),
                     use_container_width=True, key="top_causa")
+    st.markdown("</div>", unsafe_allow_html=True)
 with cc:
-    st.subheader("👥 Perfil Etário × Óbito")
+    st.markdown("<div class='trio-col'>", unsafe_allow_html=True)
+    st.subheader("👥 Faixa etária × Óbito")
     d = consultar(f"""SELECT
             CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
                  WHEN nr_idade < 15 THEN '1-14'
@@ -365,12 +382,16 @@ with cc:
     d = d.sort_values('faixa')
     d['label'] = d.apply(lambda r: f"{fmt_compacto(r['QTD'])} · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
     fig = px.bar(d, x='QTD', y='FAIXA', orientation='h', text='label', custom_data=['OBITO'])
-    fig.update_traces(marker_color="#4C9AFF", textposition="outside", cliponaxis=False,
+    fig.update_traces(marker_color="#4C9AFF", textposition="inside", insidetextanchor="end",
+        textfont=dict(color="#FFFFFF", size=11), cliponaxis=False,
         hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
-    fig.update_layout(yaxis_title=None, xaxis_title='Internações',
+    fig.update_layout(yaxis_title=None, xaxis_title=None,
                       yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
+    fig.update_xaxes(showticklabels=False, showgrid=False)
     aplicar_tema(fig, altura=CHART_HEIGHT)
+    fig.update_layout(margin=dict(l=10, r=15, t=30, b=10))
     st.plotly_chart(fig, use_container_width=True, key="perfil_etario")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # --- Internações por 1.000 habitantes ---
 st.subheader("👥 Internações por 1.000 habitantes (por região)")
