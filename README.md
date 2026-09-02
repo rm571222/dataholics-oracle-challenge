@@ -1,4 +1,4 @@
-# 🏥 Painel Hospitalar SP — DATAHOLICS
+# 🏥 Painel Hospitalar — SampaSUS
 
 **FIAP Challenge · Parceria Oracle** — Dashboard analítico da rede hospitalar SUS do estado de São Paulo, construído sobre dados do **SIH/DATASUS** em uma **arquitetura de 3 formatos** no Oracle Autonomous Database.
 
@@ -80,7 +80,7 @@ O projeto integra **três formas de armazenamento** no Oracle, demonstrando vers
 
 ## 🧱 Camada analítica (Views)
 
-Todas as análises são servidas por **views** (arquivo `views_dataholics.sql`), mantendo o app enxuto e a lógica de negócio no banco.
+Todas as análises são servidas por **views** (arquivo `views_sampasus.sql`), mantendo o app enxuto e a lógica de negócio no banco.
 
 | View | Descrição |
 |---|---|
@@ -137,7 +137,7 @@ Ao longo do desenvolvimento, a validação sistemática dos dados revelou (e cor
 
 ### Pré-requisitos
 - Oracle Autonomous Database com as tabelas SIH carregadas.
-- As 7 views criadas (execute `views_dataholics.sql` como **script**).
+- As 7 views criadas (execute `views_sampasus.sql` como **script**).
 
 ### Secrets (Streamlit)
 ```toml
