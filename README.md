@@ -17,7 +17,6 @@
 - [Decisões técnicas e bugs resolvidos](#-decisões-técnicas-e-bugs-resolvidos)
 - [Como rodar](#-como-rodar)
 - [Principais achados](#-principais-achados)
-- [Roadmap](#-roadmap)
 
 ---
 
