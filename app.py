@@ -23,10 +23,11 @@ _MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", 
 
 st.markdown("""
 <style>
-.block-container, [data-testid="stAppViewBlockContainer"] {
-    padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px;
+/* Centraliza o conteúdo (funciona com sidebar aberta ou fechada) */
+.block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px;
     margin-left: auto !important; margin-right: auto !important; }
-[data-testid="stMainBlockContainer"] { margin-left: auto !important; margin-right: auto !important; }
+[data-testid="stMain"] { display: flex; flex-direction: column; align-items: center; }
+[data-testid="stMain"] .block-container { width: 100%; }
 [data-testid="stMetric"] { background:#1C1F26; border:1px solid #333; border-radius:10px;
     padding:15px; min-height:120px; }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
@@ -131,22 +132,24 @@ def aplicar_tema(fig, altura=CHART_HEIGHT, legenda=False):
 
 def barra_h(df, x, y_full, texto, titulo_x=None, altura=CHART_HEIGHT, cores=None,
             eixo_x=True, ordem_cat=None):
-    """Barra horizontal padronizada. eixo_x=False esconde os ticks/título do eixo X."""
+    """Barra horizontal padronizada. eixo_x=False esconde ticks e abre headroom p/ rótulos."""
     d = df.copy()
     d["_y"] = d[y_full].apply(truncar)
     ordem = ordem_cat if ordem_cat is not None else d["_y"].tolist()
     fig = px.bar(d, x=x, y="_y", orientation="h", text=texto, custom_data=[y_full])
     if cores is not None:
         fig.update_traces(marker_color=cores)
-    fig.update_traces(textposition="inside", insidetextanchor="end",
-                      textfont=dict(color="#FFFFFF", size=11), cliponaxis=False,
+    fig.update_traces(textposition="outside", cliponaxis=False,
+                      textfont=dict(size=11),
                       hovertemplate="<b>%{customdata[0]}</b><br>%{x:,.0f}<extra></extra>")
     fig.update_layout(yaxis_title=None, xaxis_title=(titulo_x if eixo_x else None),
                       yaxis=dict(automargin=True, categoryorder="array", categoryarray=ordem))
     if not eixo_x:
-        fig.update_xaxes(showticklabels=False, showgrid=False)
+        # headroom à direita p/ o rótulo externo não cortar
+        xmax = float(pd.to_numeric(d[x], errors="coerce").replace([float('inf')], pd.NA).max() or 0)
+        fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, xmax * 1.32])
     aplicar_tema(fig, altura=altura)
-    fig.update_layout(margin=dict(l=10, r=15, t=30, b=10))
+    fig.update_layout(margin=dict(l=10, r=20, t=30, b=10))
     return fig
 
 def status_ocup(v):
@@ -185,6 +188,13 @@ def carregar_dim():
         df[c] = df[c].astype(str).str.replace('"', '', regex=False).str.strip()
     return df
 
+@st.cache_data(ttl=3600)
+def carregar_valores(coluna):
+    """Valores distintos de uma coluna categórica da base fato (para filtros)."""
+    df = consultar(f"""SELECT DISTINCT {coluna} AS v FROM VW_INTERNACAO_COMPLETA
+        WHERE {coluna} IS NOT NULL ORDER BY {coluna}""")
+    return df['V'].dropna().astype(str).tolist()
+
 ini_comp, fim_comp = carregar_periodo()
 dim = carregar_dim()
 
@@ -214,6 +224,14 @@ municipios_sel = st.sidebar.multiselect(
     "Município", sorted(dim_m['NM_MUNICIPIO'].dropna().unique()))
 esferas_sel = st.sidebar.multiselect(
     "Esfera administrativa", sorted(dim['ESFERA_ADMIN'].dropna().unique()))
+
+st.sidebar.markdown("---")
+carater_sel = st.sidebar.multiselect("Caráter da internação", carregar_valores("ds_carater_internacao"))
+complex_sel = st.sidebar.multiselect("Complexidade", carregar_valores("ds_complexidade"))
+sexo_sel = st.sidebar.multiselect("Sexo", carregar_valores("ds_sexo"))
+raca_sel = st.sidebar.multiselect("Raça/cor", carregar_valores("ds_raca_cor"))
+diag_sel = st.sidebar.multiselect("Diagnóstico (causa)", carregar_valores("ds_diagnostico"))
+
 if st.sidebar.button("↺ Limpar filtros"):
     st.rerun()
 
@@ -229,11 +247,28 @@ if municipios_sel:
 if esferas_sel:
     cds = [str(c).zfill(10) for c in dim[dim['ESFERA_ADMIN'].isin(esferas_sel)]['CD_HOSPITAL']] or ['__none__']
     where += f" AND LPAD(cd_hospital,10,'0') IN ({lst_sql(cds)})"
+if carater_sel:
+    where += f" AND ds_carater_internacao IN ({lst_sql(carater_sel)})"
+if complex_sel:
+    where += f" AND ds_complexidade IN ({lst_sql(complex_sel)})"
+if sexo_sel:
+    where += f" AND ds_sexo IN ({lst_sql(sexo_sel)})"
+if raca_sel:
+    where += f" AND ds_raca_cor IN ({lst_sql(raca_sel)})"
+if diag_sel:
+    where += f" AND ds_diagnostico IN ({lst_sql(diag_sel)})"
 
+_extra = []
+if carater_sel: _extra.append(f"{len(carater_sel)} caráter")
+if complex_sel: _extra.append(f"{len(complex_sel)} complexidade")
+if sexo_sel: _extra.append("sexo")
+if raca_sel: _extra.append("raça/cor")
+if diag_sel: _extra.append(f"{len(diag_sel)} diagnóstico(s)")
 recorte_txt = (f"{mes_curto(comp_ini)} a {mes_curto(comp_fim)}"
                + (f" · {len(regioes_sel)} região(ões)" if regioes_sel else "")
                + (f" · {len(municipios_sel)} município(s)" if municipios_sel else "")
-               + (f" · {', '.join(esferas_sel)}" if esferas_sel else ""))
+               + (f" · {', '.join(esferas_sel)}" if esferas_sel else "")
+               + (f" · {' · '.join(_extra)}" if _extra else ""))
 
 
 # ============================================================
@@ -336,62 +371,63 @@ if kpi == 0:
     st.warning("Nenhuma internação para os filtros selecionados. Ajuste os filtros na barra lateral.")
     st.stop()
 
+def titulo_centro(txt):
+    st.markdown(f"<h3 style='text-align:center; margin:0 0 0.3rem;'>{txt}</h3>", unsafe_allow_html=True)
+
 ca, cb, cc = st.columns(3)
 with ca:
-    st.markdown("<div class='trio-col'>", unsafe_allow_html=True)
-    st.subheader("🏙️ Top 10 Regiões")
-    d = consultar(f"""SELECT nm_regiao_saude, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
-        GROUP BY nm_regiao_saude ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
-    d['label'] = d['QTD'].apply(fmt_compacto)
-    st.plotly_chart(barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', eixo_x=False),
-                    use_container_width=True, key="top_reg")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        titulo_centro("🏙️ Top 10 Regiões")
+        d = consultar(f"""SELECT nm_regiao_saude, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
+            GROUP BY nm_regiao_saude ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
+        d['label'] = d['QTD'].apply(fmt_compacto)
+        st.plotly_chart(barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', eixo_x=False),
+                        use_container_width=True, key="top_reg")
 with cb:
-    st.markdown("<div class='trio-col'>", unsafe_allow_html=True)
-    st.subheader("🩺 Top 10 Causas")
-    d = consultar(f"""SELECT ds_diagnostico, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
-        GROUP BY ds_diagnostico ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
-    d['DS_DIAGNOSTICO'] = d['DS_DIAGNOSTICO'].apply(simplificar_causa)
-    d['label'] = d['QTD'].apply(fmt_compacto)
-    st.plotly_chart(barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', eixo_x=False),
-                    use_container_width=True, key="top_causa")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        titulo_centro("🩺 Top 10 Causas")
+        d = consultar(f"""SELECT ds_diagnostico, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
+            GROUP BY ds_diagnostico ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
+        d['DS_DIAGNOSTICO'] = d['DS_DIAGNOSTICO'].apply(simplificar_causa)
+        d['label'] = d['QTD'].apply(fmt_compacto)
+        st.plotly_chart(barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', eixo_x=False),
+                        use_container_width=True, key="top_causa")
 with cc:
-    st.markdown("<div class='trio-col'>", unsafe_allow_html=True)
-    st.subheader("👥 Faixa etária × Óbito")
-    d = consultar(f"""SELECT
-            CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
-                 WHEN nr_idade < 15 THEN '1-14'
-                 WHEN nr_idade < 30 THEN '15-29'
-                 WHEN nr_idade < 45 THEN '30-44'
-                 WHEN nr_idade < 60 THEN '45-59'
-                 WHEN nr_idade < 75 THEN '60-74'
-                 ELSE '75+' END AS faixa,
-            COUNT(*) AS qtd,
-            ROUND(SUM(fl_obito)/COUNT(*)*100,1) AS obito
-        FROM VW_INTERNACAO_COMPLETA {where}
-        GROUP BY CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
-                 WHEN nr_idade < 15 THEN '1-14'
-                 WHEN nr_idade < 30 THEN '15-29'
-                 WHEN nr_idade < 45 THEN '30-44'
-                 WHEN nr_idade < 60 THEN '45-59'
-                 WHEN nr_idade < 75 THEN '60-74'
-                 ELSE '75+' END""")
-    _ordem_faixa = ['0 (< 1 ano)','1-14','15-29','30-44','45-59','60-74','75+']
-    d['faixa'] = pd.Categorical(d['FAIXA'], categories=_ordem_faixa, ordered=True)
-    d = d.sort_values('faixa')
-    d['label'] = d.apply(lambda r: f"{fmt_compacto(r['QTD'])} · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
-    fig = px.bar(d, x='QTD', y='FAIXA', orientation='h', text='label', custom_data=['OBITO'])
-    fig.update_traces(marker_color="#4C9AFF", textposition="inside", insidetextanchor="end",
-        textfont=dict(color="#FFFFFF", size=11), cliponaxis=False,
-        hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
-    fig.update_layout(yaxis_title=None, xaxis_title=None,
-                      yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
-    fig.update_xaxes(showticklabels=False, showgrid=False)
-    aplicar_tema(fig, altura=CHART_HEIGHT)
-    fig.update_layout(margin=dict(l=10, r=15, t=30, b=10))
-    st.plotly_chart(fig, use_container_width=True, key="perfil_etario")
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        titulo_centro("👥 Faixa etária × Óbito")
+        d = consultar(f"""SELECT
+                CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
+                     WHEN nr_idade < 15 THEN '1-14'
+                     WHEN nr_idade < 30 THEN '15-29'
+                     WHEN nr_idade < 45 THEN '30-44'
+                     WHEN nr_idade < 60 THEN '45-59'
+                     WHEN nr_idade < 75 THEN '60-74'
+                     ELSE '75+' END AS faixa,
+                COUNT(*) AS qtd,
+                ROUND(SUM(fl_obito)/COUNT(*)*100,1) AS obito
+            FROM VW_INTERNACAO_COMPLETA {where}
+            GROUP BY CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
+                     WHEN nr_idade < 15 THEN '1-14'
+                     WHEN nr_idade < 30 THEN '15-29'
+                     WHEN nr_idade < 45 THEN '30-44'
+                     WHEN nr_idade < 60 THEN '45-59'
+                     WHEN nr_idade < 75 THEN '60-74'
+                     ELSE '75+' END""")
+        _ordem_faixa = ['0 (< 1 ano)','1-14','15-29','30-44','45-59','60-74','75+']
+        d['faixa'] = pd.Categorical(d['FAIXA'], categories=_ordem_faixa, ordered=True)
+        d = d.sort_values('faixa')
+        d['label'] = d.apply(lambda r: f"{fmt_compacto(r['QTD'])} · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
+        _xmax = float(d['QTD'].max())
+        fig = px.bar(d, x='QTD', y='FAIXA', orientation='h', text='label', custom_data=['OBITO'])
+        fig.update_traces(marker_color="#4C9AFF", textposition="outside", cliponaxis=False,
+            textfont=dict(size=11),
+            hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
+        fig.update_layout(yaxis_title=None, xaxis_title=None,
+                          yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
+        fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.42])
+        aplicar_tema(fig, altura=CHART_HEIGHT)
+        fig.update_layout(margin=dict(l=10, r=20, t=30, b=10))
+        st.plotly_chart(fig, use_container_width=True, key="perfil_etario")
 
 # --- Internações por 1.000 habitantes ---
 st.subheader("👥 Internações por 1.000 habitantes (por região)")
@@ -514,7 +550,12 @@ mn = dim[['CD_HOSPITAL', 'NM_HOSPITAL', 'NM_REGIAO_SAUDE']].copy()
 mn['CD_HOSPITAL'] = mn['CD_HOSPITAL'].astype(str).str.zfill(10)
 hosp = hosp.merge(mn, on='CD_HOSPITAL', how='left')
 hosp['NM_HOSPITAL'] = hosp['NM_HOSPITAL'].fillna('Hospital ' + hosp['CD_HOSPITAL'])
-hosp['TAXA_OCUPACAO'] = (hosp['PAC_DIA'] / (hosp['LEITOS_SUS'] * dias_periodo) * 100).round(1)
+# Ocupação só faz sentido com leitos SUS > 0; senão vira inf (bug da barra vazia).
+hosp['TAXA_OCUPACAO'] = pd.NA
+_ok = hosp['LEITOS_SUS'].notna() & (hosp['LEITOS_SUS'] > 0)
+hosp.loc[_ok, 'TAXA_OCUPACAO'] = (
+    hosp.loc[_ok, 'PAC_DIA'] / (hosp.loc[_ok, 'LEITOS_SUS'] * dias_periodo) * 100).round(1)
+hosp['TAXA_OCUPACAO'] = pd.to_numeric(hosp['TAXA_OCUPACAO'], errors='coerce')
 
 def ranking_hosp(df, col, titx, fmt, cores=None, ref=None, ref_txt=None):
     d = df.copy()
