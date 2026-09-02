@@ -23,28 +23,22 @@ _MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", 
 
 st.markdown("""
 <style>
-/* Centraliza o conteúdo mesmo quando a sidebar está recolhida */
 .block-container { padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px;
     margin-left: auto !important; margin-right: auto !important; }
 [data-testid="stMetric"] { background:#1C1F26; border:1px solid #333; border-radius:10px;
     padding:15px; min-height:120px; }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
 section[data-testid="stSidebar"] { min-width: 330px; }
-/* Divisória de seção */
 .sec-divider { border:none; border-top:2px solid #2A2E37; margin:2.2rem 0 1rem; }
-.sec-tag { display:inline-block; background:#2A2E37; color:#AAB4BF; font-size:0.75rem;
-    padding:2px 10px; border-radius:20px; letter-spacing:0.5px; margin-bottom:0.3rem; }
 </style>
 """, unsafe_allow_html=True)
 
-def divisor(tag=None):
+def divisor():
     st.markdown("<hr class='sec-divider'>", unsafe_allow_html=True)
-    if tag:
-        st.markdown(f"<span class='sec-tag'>{tag}</span>", unsafe_allow_html=True)
 
 
 # ============================================================
-# CONEXÃO E CONSULTA (resiliente)
+# CONEXÃO E CONSULTA
 # ============================================================
 def _nova_conexao():
     wallet_path = "/tmp/wallet"
@@ -149,6 +143,14 @@ def status_ocup(v):
     if v >= OCUP_ATENCAO: return "Atenção"
     return "Estável"
 
+def mini_card(cor, emoji, tit, val, sub=""):
+    sub_html = f"<div style='color:{cor}; font-size:0.8rem;'>{sub}</div>" if sub else ""
+    return (f"<div style='background:#1C1F26; border-left:5px solid {cor}; border-radius:10px; "
+            f"padding:12px 14px; min-height:96px;'>"
+            f"<div style='color:#AAB4BF; font-size:0.8rem;'>{emoji} {tit}</div>"
+            f"<div style='font-size:1.7rem; font-weight:700; color:#FFF; line-height:1.1;'>{fmt_num(val)}</div>"
+            f"{sub_html}</div>")
+
 
 # ============================================================
 # DIMENSÕES (1x)
@@ -184,7 +186,7 @@ competencias = range_competencias(ini_comp, fim_comp)
 
 
 # ============================================================
-# SIDEBAR — FILTROS (valem da Seção 2 em diante)
+# SIDEBAR — FILTROS (Seção 2 em diante)
 # ============================================================
 st.sidebar.title("🎛️ Filtros")
 st.sidebar.caption("Aplicam-se da **Seção 2 em diante**. A Visão Executiva (Seção 1) "
@@ -231,7 +233,7 @@ st.caption(f"Dados SIH/DATASUS, {mes_curto(ini_comp)} a {mes_curto(fim_comp)} ·
 
 
 # ============================================================
-# SEÇÃO 1 — VISÃO EXECUTIVA (SEM filtros — panorama completo)
+# SEÇÃO 1 — VISÃO EXECUTIVA (SEM filtros)
 # ============================================================
 st.header("Visão Executiva")
 st.caption("Panorama do período completo — não afetado pelos filtros da barra lateral.")
@@ -254,7 +256,6 @@ mesa = consultar(f"""SELECT COUNT(*) AS q FROM VW_INTERNACAO_COMPLETA
 d12 = ((u12-u12a)/u12a*100) if u12a else 0
 dytd = ((ytd-ytda)/ytda*100) if ytda else 0
 dmes = ((mes-mesa)/mesa*100) if mesa else 0
-comp12 = f"{mes_curto(fim_comp-100)}" if fim_mes == 12 else f"{_MESES_PT[(fim_mes%12)+1]}/{str(fim_ano-1)[2:]}"
 
 def card_total(tit, val, rod):
     return (f"<div style='background:#1C1F26; border:1px solid #333; border-radius:10px; padding:15px; "
@@ -265,14 +266,12 @@ def card_total(tit, val, rod):
 k1, k2, k3, k4 = st.columns(4)
 k1.markdown(card_total("Total de Internações", fmt_num(total_geral),
                        f"{mes_curto(ini_comp)} a {mes_curto(fim_comp)}"), unsafe_allow_html=True)
-k2.metric(f"Últimos 12 Meses", fmt_num(u12),
-          delta=f"{fmt_num(d12,1)}% vs. 12m anteriores", delta_color="inverse")
+k2.metric("Últimos 12 Meses", fmt_num(u12), delta=f"{fmt_num(d12,1)}% vs. 12m anteriores", delta_color="inverse")
 k3.metric(f"YTD ({mes_curto(fim_ano*100+1)} a {mes_curto(fim_comp)})", fmt_num(ytd),
           delta=f"{fmt_num(dytd,1)}% vs. YTD {fim_ano-1}", delta_color="inverse")
 k4.metric(f"Último Mês ({mes_curto(fim_comp)})", fmt_num(mes),
           delta=f"{fmt_num(dmes,1)}% vs. mês anterior", delta_color="inverse")
 
-# --- Evolução mensal (período completo, sem filtro) ---
 st.subheader("📈 Evolução Mensal de Internações")
 top5 = consultar("""SELECT nm_regiao_saude FROM VW_VOLUME_REGIAO
     ORDER BY qtd_internacoes DESC FETCH FIRST 5 ROWS ONLY""")['NM_REGIAO_SAUDE'].tolist()
@@ -316,7 +315,7 @@ st.plotly_chart(fig, use_container_width=True, key="evolucao")
 # ============================================================
 # SEÇÃO 2 — PERFIL DA DEMANDA (com filtros)
 # ============================================================
-divisor("SEÇÃO 2 · FILTROS APLICADOS")
+divisor()
 st.header("Perfil da Demanda")
 st.caption(f"Recorte atual: {recorte_txt}")
 
@@ -342,13 +341,36 @@ with cb:
     st.plotly_chart(barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', 'Internações'),
                     use_container_width=True, key="top_causa")
 with cc:
-    st.subheader("🛏️ Permanência × Óbito")
-    d = consultar(f"""SELECT ds_complexidade, ROUND(AVG(qt_dias_permanencia),1) AS perm,
-            ROUND(SUM(fl_obito)/COUNT(*)*100,2) AS obito FROM VW_INTERNACAO_COMPLETA {where}
-        GROUP BY ds_complexidade""").sort_values('PERM')
-    d['label'] = d.apply(lambda r: f"{fmt_num(r['PERM'],1)}d · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
-    st.plotly_chart(barra_h(d, 'PERM', 'DS_COMPLEXIDADE', 'label', 'Permanência (dias)'),
-                    use_container_width=True, key="perm_compl")
+    st.subheader("👥 Perfil Etário × Óbito")
+    d = consultar(f"""SELECT
+            CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
+                 WHEN nr_idade < 15 THEN '1-14'
+                 WHEN nr_idade < 30 THEN '15-29'
+                 WHEN nr_idade < 45 THEN '30-44'
+                 WHEN nr_idade < 60 THEN '45-59'
+                 WHEN nr_idade < 75 THEN '60-74'
+                 ELSE '75+' END AS faixa,
+            COUNT(*) AS qtd,
+            ROUND(SUM(fl_obito)/COUNT(*)*100,1) AS obito
+        FROM VW_INTERNACAO_COMPLETA {where}
+        GROUP BY CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
+                 WHEN nr_idade < 15 THEN '1-14'
+                 WHEN nr_idade < 30 THEN '15-29'
+                 WHEN nr_idade < 45 THEN '30-44'
+                 WHEN nr_idade < 60 THEN '45-59'
+                 WHEN nr_idade < 75 THEN '60-74'
+                 ELSE '75+' END""")
+    _ordem_faixa = ['0 (< 1 ano)','1-14','15-29','30-44','45-59','60-74','75+']
+    d['faixa'] = pd.Categorical(d['FAIXA'], categories=_ordem_faixa, ordered=True)
+    d = d.sort_values('faixa')
+    d['label'] = d.apply(lambda r: f"{fmt_compacto(r['QTD'])} · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
+    fig = px.bar(d, x='QTD', y='FAIXA', orientation='h', text='label', custom_data=['OBITO'])
+    fig.update_traces(marker_color="#4C9AFF", textposition="outside", cliponaxis=False,
+        hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
+    fig.update_layout(yaxis_title=None, xaxis_title='Internações',
+                      yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
+    aplicar_tema(fig, altura=CHART_HEIGHT)
+    st.plotly_chart(fig, use_container_width=True, key="perfil_etario")
 
 # --- Internações por 1.000 habitantes ---
 st.subheader("👥 Internações por 1.000 habitantes (por região)")
@@ -384,7 +406,7 @@ except Exception as e:
 # ============================================================
 # SEÇÃO 3 — PRESSÃO ASSISTENCIAL (com filtros)
 # ============================================================
-divisor("SEÇÃO 3 · FILTROS APLICADOS")
+divisor()
 st.header("Pressão Assistencial — Ocupação de Leitos SUS")
 st.caption(f"Recorte atual: {recorte_txt}")
 
@@ -457,7 +479,7 @@ if n_t:
 # ============================================================
 # SEÇÃO 4 — HOSPITAIS (com filtros)
 # ============================================================
-divisor("SEÇÃO 4 · FILTROS APLICADOS")
+divisor()
 st.header("Hospitais — Permanência, Capacidade e Ocupação")
 st.caption(f"Recorte atual: {recorte_txt}")
 
@@ -513,7 +535,7 @@ st.plotly_chart(ranking_hosp(to, 'TAXA_OCUPACAO', 'Ocupação (%)',
 # ============================================================
 # SEÇÃO 5 — MAPA (cereja do bolo; com filtros)
 # ============================================================
-divisor("SEÇÃO 5 · FILTROS APLICADOS")
+divisor()
 st.header("🗺️ Mapa — Hospitais")
 st.caption(f"Recorte atual: {recorte_txt} · cor = ocupação · tamanho ∝ leitos SUS")
 
@@ -523,6 +545,21 @@ mp = mp[mp['LATITUDE'].notna() & mp['LONGITUDE'].notna()]
 mp = mp[(mp['LATITUDE'].between(-25.5, -19.5)) & (mp['LONGITUDE'].between(-53.5, -44.0))].copy()
 mp['status'] = mp['TAXA_OCUPACAO'].apply(status_ocup)
 mp['_size'] = mp['LEITOS_SUS'].fillna(0).clip(lower=0) + 20
+
+# KPIs do mapa (mesmo estilo dos cards de Pressão Assistencial)
+m_total = len(mp)
+m_crit = int((mp['status'] == "Crítico").sum())
+m_aten = int((mp['status'] == "Atenção").sum())
+m_esta = int((mp['status'] == "Estável").sum())
+m_semd = int((mp['status'] == "Sem dado").sum())
+mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+mc1.markdown(mini_card("#4C9AFF", "🏥", "Hospitais no mapa", m_total), unsafe_allow_html=True)
+mc2.markdown(mini_card(COR_STATUS["Crítico"], "🔴", "Crítico (≥70%)", m_crit), unsafe_allow_html=True)
+mc3.markdown(mini_card(COR_STATUS["Atenção"], "🟡", "Atenção (55–70%)", m_aten), unsafe_allow_html=True)
+mc4.markdown(mini_card(COR_STATUS["Estável"], "🟢", "Estável (<55%)", m_esta), unsafe_allow_html=True)
+mc5.markdown(mini_card("#7F8C9B", "⚪", "Sem dado", m_semd), unsafe_allow_html=True)
+st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
+
 mp['_hover'] = mp.apply(lambda r:
     f"<b>{r['NM_HOSPITAL']}</b><br>{r['NM_MUNICIPIO']} · {r['NM_REGIAO_SAUDE']}<br>"
     f"Internações: {fmt_num(r['QTD'])}<br>Leitos SUS: {fmt_num(r['LEITOS_SUS'] or 0)}<br>"
