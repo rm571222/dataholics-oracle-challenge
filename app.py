@@ -33,9 +33,8 @@ BORDA       = "#E2E8F0"   # bordas sutis
 GRID        = "rgba(28,40,51,0.08)"
 MAPA_STYLE  = "carto-positron"
 
-# Logo em base64 (assets/sampasus_logo.png). Fallback silencioso se ausente.
 try:
-    with open(os.path.join("assets", "sampasus_logo.png"), "rb") as _f:
+    with open(os.path.join("docs", "sampasus_logo.png"), "rb") as _f:
         _LOGO_B64 = base64.b64encode(_f.read()).decode()
 except Exception:
     _LOGO_B64 = ""
