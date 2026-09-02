@@ -232,11 +232,10 @@ carater_sel = st.sidebar.multiselect(
     "Caráter da internação", carregar_valores("ds_carater_internacao"))
 complex_sel = st.sidebar.multiselect(
     "Complexidade", carregar_valores("ds_complexidade"))
-
-# Filtros demográficos em expander (economiza altura → evita scroll na sidebar)
-with st.sidebar.expander("Demografia (sexo, raça/cor)"):
-    sexo_sel = st.multiselect("Sexo", carregar_valores("ds_sexo"))
-    raca_sel = st.multiselect("Raça/cor", carregar_valores("ds_raca_cor"))
+sexo_sel = st.sidebar.multiselect(
+    "Sexo", carregar_valores("ds_sexo"))
+raca_sel = st.sidebar.multiselect(
+    "Raça/cor", carregar_valores("ds_raca_cor"))
 diag_sel = []  # filtro de diagnóstico removido (volume alto demais)
 
 if st.sidebar.button("↺ Limpar filtros"):
