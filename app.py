@@ -9,7 +9,8 @@ import base64, os, zipfile, io, re, math
 # ============================================================
 # CONFIG GLOBAL
 # ============================================================
-st.set_page_config(page_title="Painel Hospitalar SP - DATAHOLICS", page_icon="🏥", layout="wide")
+st.set_page_config(page_title="Painel Hospitalar SP - DATAHOLICS", page_icon="🏥",
+                   layout="wide", initial_sidebar_state="expanded")
 
 CHART_HEIGHT = 380
 MARGEM_PADRAO = dict(l=10, r=30, t=30, b=10)
@@ -31,7 +32,11 @@ st.markdown("""
 [data-testid="stMetric"] { background:#1C1F26; border:1px solid #333; border-radius:10px;
     padding:15px; min-height:120px; }
 h1, h2, h3 { font-family: 'Segoe UI', sans-serif; }
-section[data-testid="stSidebar"] { min-width: 330px; }
+section[data-testid="stSidebar"] { min-width: 330px; width: 330px; }
+/* Sidebar compacta: reduz espaçamento entre widgets p/ caber sem rolar */
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.55rem; }
+section[data-testid="stSidebar"] .stMultiSelect label,
+section[data-testid="stSidebar"] .stSlider label { font-size: 0.85rem; margin-bottom: 0; }
 .sec-divider { border:none; border-top:2px solid #2A2E37; margin:2.2rem 0 1rem; }
 /* Separação vertical entre os 3 gráficos do Perfil da Demanda */
 .trio-col { border-right:1px solid #2A2E37; padding:0 14px; }
@@ -211,8 +216,7 @@ competencias = range_competencias(ini_comp, fim_comp)
 # SIDEBAR — FILTROS (Seção 2 em diante)
 # ============================================================
 st.sidebar.title("🎛️ Filtros")
-st.sidebar.caption("Aplicam-se da **Seção 2 em diante**. A Visão Executiva (Seção 1) "
-                   "mostra sempre o panorama completo.")
+st.sidebar.caption("Aplicam-se da Seção 2 em diante.")
 
 periodo_sel = st.sidebar.select_slider(
     "Período (competência)", options=competencias,
@@ -224,13 +228,16 @@ municipios_sel = st.sidebar.multiselect(
     "Município", sorted(dim_m['NM_MUNICIPIO'].dropna().unique()))
 esferas_sel = st.sidebar.multiselect(
     "Esfera administrativa", sorted(dim['ESFERA_ADMIN'].dropna().unique()))
+carater_sel = st.sidebar.multiselect(
+    "Caráter da internação", carregar_valores("ds_carater_internacao"))
+complex_sel = st.sidebar.multiselect(
+    "Complexidade", carregar_valores("ds_complexidade"))
 
-st.sidebar.markdown("---")
-carater_sel = st.sidebar.multiselect("Caráter da internação", carregar_valores("ds_carater_internacao"))
-complex_sel = st.sidebar.multiselect("Complexidade", carregar_valores("ds_complexidade"))
-sexo_sel = st.sidebar.multiselect("Sexo", carregar_valores("ds_sexo"))
-raca_sel = st.sidebar.multiselect("Raça/cor", carregar_valores("ds_raca_cor"))
-diag_sel = st.sidebar.multiselect("Diagnóstico (causa)", carregar_valores("ds_diagnostico"))
+# Filtros demográficos em expander (economiza altura → evita scroll na sidebar)
+with st.sidebar.expander("Demografia (sexo, raça/cor)"):
+    sexo_sel = st.multiselect("Sexo", carregar_valores("ds_sexo"))
+    raca_sel = st.multiselect("Raça/cor", carregar_valores("ds_raca_cor"))
+diag_sel = []  # filtro de diagnóstico removido (volume alto demais)
 
 if st.sidebar.button("↺ Limpar filtros"):
     st.rerun()
@@ -255,15 +262,12 @@ if sexo_sel:
     where += f" AND ds_sexo IN ({lst_sql(sexo_sel)})"
 if raca_sel:
     where += f" AND ds_raca_cor IN ({lst_sql(raca_sel)})"
-if diag_sel:
-    where += f" AND ds_diagnostico IN ({lst_sql(diag_sel)})"
 
 _extra = []
 if carater_sel: _extra.append(f"{len(carater_sel)} caráter")
 if complex_sel: _extra.append(f"{len(complex_sel)} complexidade")
 if sexo_sel: _extra.append("sexo")
 if raca_sel: _extra.append("raça/cor")
-if diag_sel: _extra.append(f"{len(diag_sel)} diagnóstico(s)")
 recorte_txt = (f"{mes_curto(comp_ini)} a {mes_curto(comp_fim)}"
                + (f" · {len(regioes_sel)} região(ões)" if regioes_sel else "")
                + (f" · {len(municipios_sel)} município(s)" if municipios_sel else "")
