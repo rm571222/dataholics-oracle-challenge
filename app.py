@@ -33,8 +33,7 @@ BORDA       = "#E2E8F0"   # bordas sutis
 GRID        = "rgba(28,40,51,0.08)"
 MAPA_STYLE  = "carto-positron"
 
-# Caminho do logo (assets/sampasus_logo.png)
-LOGO_PATH = os.path.join("assets", "sampasus_logo.png")
+LOGO_PATH = os.path.join("docs", "sampasus_logo.png")
 
 st.markdown(f"""
 <style>
