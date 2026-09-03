@@ -18,6 +18,7 @@ SEPARADOR_BR = ",."
 OCUP_CRITICO = 70.0
 OCUP_ATENCAO = 55.0
 PLOTLY_CFG = {"displayModeBar": False, "scrollZoom": False}
+MAP_CFG = {"displayModeBar": False, "scrollZoom": True}   # mapa mantém zoom por scroll
 PLACEHOLDER = "Selecione..."
 _MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
@@ -61,7 +62,7 @@ h1 {{ color:{NAVY}; font-weight: 800; letter-spacing:-0.02em; }}
 h2 {{ color:{NAVY}; font-weight: 700; letter-spacing:-0.01em; }}
 h3 {{ color:{NAVY}; font-weight: 700; }}
 
-/* ---------- Métricas nativas (não usadas nos KPIs, mas mantém padrão) ---------- */
+/* ---------- Métricas nativas ---------- */
 [data-testid="stMetric"] {{ background:{CARD_BG}; border:1px solid {BORDA}; border-radius:16px;
     padding:18px 20px; min-height:120px;
     box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 8px 24px rgba(15,42,74,0.06); }}
@@ -81,6 +82,11 @@ h3 {{ color:{NAVY}; font-weight: 700; }}
     overflow: hidden; }}
 [data-testid="stPlotlyChart"] > div {{ overflow: hidden !important; }}
 [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stPlotlyChart"] {{
+    border:none; box-shadow:none; padding:0; background:transparent; }}
+
+/* ---------- Gráficos SEM cartão (trio Perfil da Demanda) ---------- */
+[data-testid="stPlotlyChart"].sem-card,
+.sem-card [data-testid="stPlotlyChart"] {{
     border:none; box-shadow:none; padding:0; background:transparent; }}
 
 /* ---------- DataFrames ---------- */
@@ -107,11 +113,6 @@ section[data-testid="stSidebar"] div[data-testid="stImage"] img {{ border-radius
 /* ---------- Divisória de seção ---------- */
 .sec-divider {{ border:none; height:1px; margin:2.4rem 0 1.2rem;
     background: linear-gradient(90deg, {BORDA}, rgba(234,240,247,0)); }}
-
-/* ---------- Título dos gráficos do trio ---------- */
-.trio-title {{ text-align:center; color:{NAVY}; font-weight:700; font-size:1.05rem;
-    margin: 0.2rem 0 0.5rem; }}
-.info-ico {{ cursor:help; color:{TEXTO_SUAVE}; font-size:0.8rem; margin-left:5px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -245,7 +246,8 @@ def status_ocup(v):
     return "Estável"
 
 def _info(help_txt):
-    return (f"<span class='info-ico' title=\"{help_txt}\">&#9432;</span>" if help_txt else "")
+    return (f"<span style='cursor:help; color:{TEXTO_SUAVE}; font-size:0.8rem; margin-left:5px;' "
+            f"title=\"{help_txt}\">&#9432;</span>" if help_txt else "")
 
 def card_kpi(titulo, valor, rodape="", help_txt="", delta_txt="", delta_up=None):
     if delta_txt:
@@ -270,9 +272,6 @@ def mini_card(cor, emoji, tit, val, sub=""):
             f"<div style='color:{TEXTO_SUAVE}; font-size:0.8rem; font-weight:600;'>{emoji} {tit}</div>"
             f"<div style='font-size:1.8rem; font-weight:800; color:{NAVY}; line-height:1.15;'>{fmt_num(val)}</div>"
             f"{sub_html}</div>")
-
-def titulo_trio(txt, help_txt=""):
-    st.markdown(f"<div class='trio-title'>{txt}{_info(help_txt)}</div>", unsafe_allow_html=True)
 
 
 # ============================================================
@@ -445,7 +444,6 @@ piv = (tc[tc['NM_REGIAO_SAUDE'].isin(top5)]
        .sort_index())
 fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04,
                     row_heights=[0.22, 0.78], subplot_titles=("", ""))
-# Painel superior: Total do estado
 fig.add_trace(go.Scatter(x=total_mes['competencia'], y=total_mes['QTD_INTERNACOES'],
     mode="lines+markers+text", line=dict(color=NAVY, width=3, shape="spline"),
     marker=dict(size=4, color=NAVY),
@@ -457,14 +455,12 @@ fig.add_trace(go.Scatter(x=[_ux + pd.Timedelta(days=10)], y=[_uy], mode="text",
     text=[f"Estado SP — {fmt_compacto(_uy)}"], textposition="middle right",
     textfont=dict(color=NAVY, size=12), cliponaxis=False, hoverinfo="skip", showlegend=False), row=1, col=1)
 
-# Painel inferior: Top 5 regiões
 for i, nome in enumerate(top5):
     if nome in piv.columns:
         cor = PALETA[i % len(PALETA)]
         fig.add_trace(go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines",
             line=dict(width=2.5, color=cor, shape="spline"),
             hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"), row=2, col=1)
-# Rótulos finais (nome + valor) com anti-colisão em escala log
 _finais = [(nome, float(piv[nome].iloc[-1]), PALETA[i % len(PALETA)])
            for i, nome in enumerate(top5) if nome in piv.columns]
 _ypos = {}; _last = None; _ratio = 1.16
@@ -477,7 +473,6 @@ for nome, val, cor in _finais:
         textposition="middle right", textfont=dict(color=cor, size=10),
         cliponaxis=False, hoverinfo="skip", showlegend=False), row=2, col=1)
 
-# eixos: headroom no total + folga à esquerda p/ não cortar o 1º rótulo
 fig.update_yaxes(visible=False, range=[total_mes['QTD_INTERNACOES'].min()*0.85,
                                        total_mes['QTD_INTERNACOES'].max()*1.18], row=1, col=1)
 _tk = [10000,20000,30000,40000,50000,60000,70000]
@@ -504,60 +499,66 @@ if kpi == 0:
 
 ca, cb, cc = st.columns(3)
 with ca:
-    titulo_trio("🏙️ Top 10 Regiões", "Regiões de saúde com maior volume de internações no recorte (escala log).")
-    with st.container(border=True):
-        d = consultar(f"""SELECT nm_regiao_saude, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
-            GROUP BY nm_regiao_saude ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
-        d['label'] = d['QTD'].apply(fmt_compacto)
-        _f = barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', log_x=True)
-        _f.update_traces(marker_color=PALETA[0])
-        st.plotly_chart(_f, use_container_width=True, key="top_reg", config=PLOTLY_CFG)
+    st.subheader("🏙️ Top 10 Regiões")
+    d = consultar(f"""SELECT nm_regiao_saude, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
+        GROUP BY nm_regiao_saude ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
+    d['label'] = d['QTD'].apply(fmt_compacto)
+    _f = barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', log_x=True)
+    _f.update_traces(marker_color=PALETA[0])
+    st.plotly_chart(_f, use_container_width=True, key="top_reg", config=PLOTLY_CFG)
 with cb:
-    titulo_trio("🩺 Top 10 Causas", "Diagnósticos (CID) com maior número de internações no recorte.")
-    with st.container(border=True):
-        d = consultar(f"""SELECT ds_diagnostico, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
-            GROUP BY ds_diagnostico ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
-        d['DS_DIAGNOSTICO'] = d['DS_DIAGNOSTICO'].apply(simplificar_causa)
-        d['label'] = d['QTD'].apply(fmt_compacto)
-        _f = barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', eixo_x=False)
-        _f.update_traces(marker_color=PALETA[1])
-        st.plotly_chart(_f, use_container_width=True, key="top_causa", config=PLOTLY_CFG)
+    st.subheader("🩺 Top 10 Causas")
+    d = consultar(f"""SELECT ds_diagnostico, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
+        GROUP BY ds_diagnostico ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
+    d['DS_DIAGNOSTICO'] = d['DS_DIAGNOSTICO'].apply(simplificar_causa)
+    d['label'] = d['QTD'].apply(fmt_compacto)
+    _f = barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', eixo_x=False)
+    _f.update_traces(marker_color=PALETA[1])
+    st.plotly_chart(_f, use_container_width=True, key="top_causa", config=PLOTLY_CFG)
 with cc:
-    titulo_trio("👥 Faixa etária × Óbito", "Distribuição por faixa etária e a taxa de óbito de cada faixa.")
-    with st.container(border=True):
-        d = consultar(f"""SELECT
-                CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
-                     WHEN nr_idade < 15 THEN '1-14'
-                     WHEN nr_idade < 30 THEN '15-29'
-                     WHEN nr_idade < 45 THEN '30-44'
-                     WHEN nr_idade < 60 THEN '45-59'
-                     WHEN nr_idade < 75 THEN '60-74'
-                     ELSE '75+' END AS faixa,
-                COUNT(*) AS qtd,
-                ROUND(SUM(fl_obito)/COUNT(*)*100,1) AS obito
-            FROM VW_INTERNACAO_COMPLETA {where}
-            GROUP BY CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
-                     WHEN nr_idade < 15 THEN '1-14'
-                     WHEN nr_idade < 30 THEN '15-29'
-                     WHEN nr_idade < 45 THEN '30-44'
-                     WHEN nr_idade < 60 THEN '45-59'
-                     WHEN nr_idade < 75 THEN '60-74'
-                     ELSE '75+' END""")
-        _ordem_faixa = ['0 (< 1 ano)','1-14','15-29','30-44','45-59','60-74','75+']
-        d['faixa'] = pd.Categorical(d['FAIXA'], categories=_ordem_faixa, ordered=True)
-        d = d.sort_values('faixa')
-        d['label'] = d.apply(lambda r: f"{fmt_compacto(r['QTD'])} · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
-        _xmax = float(d['QTD'].max())
-        fig = px.bar(d, x='QTD', y='FAIXA', orientation='h', text='label', custom_data=['OBITO'])
-        fig.update_traces(marker_color=PALETA[4], textposition="outside", cliponaxis=False,
-            textfont=dict(size=11, color=TEXTO),
-            hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
-        fig.update_layout(yaxis_title=None, xaxis_title=None,
-                          yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
-        fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.42])
-        aplicar_tema(fig, altura=CHART_HEIGHT)
-        fig.update_layout(margin=dict(l=10, r=20, t=16, b=10))
-        st.plotly_chart(fig, use_container_width=True, key="perfil_etario", config=PLOTLY_CFG)
+    st.subheader("👥 Faixa etária × Óbito")
+    d = consultar(f"""SELECT
+            CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
+                 WHEN nr_idade < 15 THEN '1-14'
+                 WHEN nr_idade < 30 THEN '15-29'
+                 WHEN nr_idade < 45 THEN '30-44'
+                 WHEN nr_idade < 60 THEN '45-59'
+                 WHEN nr_idade < 75 THEN '60-74'
+                 ELSE '75+' END AS faixa,
+            COUNT(*) AS qtd,
+            ROUND(SUM(fl_obito)/COUNT(*)*100,1) AS obito
+        FROM VW_INTERNACAO_COMPLETA {where}
+        GROUP BY CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
+                 WHEN nr_idade < 15 THEN '1-14'
+                 WHEN nr_idade < 30 THEN '15-29'
+                 WHEN nr_idade < 45 THEN '30-44'
+                 WHEN nr_idade < 60 THEN '45-59'
+                 WHEN nr_idade < 75 THEN '60-74'
+                 ELSE '75+' END""")
+    _ordem_faixa = ['0 (< 1 ano)','1-14','15-29','30-44','45-59','60-74','75+']
+    d['faixa'] = pd.Categorical(d['FAIXA'], categories=_ordem_faixa, ordered=True)
+    d = d.sort_values('faixa')
+    d['label'] = d.apply(lambda r: f"{fmt_compacto(r['QTD'])} · {fmt_num(r['OBITO'],1)}% óbito", axis=1)
+    _xmax = float(d['QTD'].max())
+    fig = px.bar(d, x='QTD', y='FAIXA', orientation='h', text='label', custom_data=['OBITO'])
+    fig.update_traces(marker_color=PALETA[4], textposition="outside", cliponaxis=False,
+        textfont=dict(size=11, color=TEXTO),
+        hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
+    fig.update_layout(yaxis_title=None, xaxis_title=None,
+                      yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
+    fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.42])
+    aplicar_tema(fig, altura=CHART_HEIGHT)
+    fig.update_layout(margin=dict(l=10, r=20, t=16, b=10))
+    st.plotly_chart(fig, use_container_width=True, key="perfil_etario", config=PLOTLY_CFG)
+
+# CSS: remove o cartão dos 3 gráficos acima (ficam "soltos", sem borda/sombra)
+st.markdown("""
+<style>
+div[data-testid="stHorizontalBlock"]:has(#perfil-anchor) [data-testid="stPlotlyChart"]{
+    border:none !important; box-shadow:none !important; padding:0 !important; background:transparent !important; }
+</style>
+<span id="perfil-anchor"></span>
+""", unsafe_allow_html=True)
 
 # --- Internações por 1.000 habitantes ---
 st.subheader("👥 Internações por 1.000 habitantes (por região)")
@@ -577,7 +578,7 @@ try:
         fig = px.bar(pc, x='POR_MIL', y='_y', orientation='h',
                      text=pc['POR_MIL'].apply(lambda v: fmt_num(v, 1)),
                      custom_data=['NM_REGIAO_SAUDE', 'QTD', 'POPULACAO'])
-        fig.update_traces(marker_color=ACENTO, textposition="outside", cliponaxis=False,
+        fig.update_traces(marker_color=PALETA[2], textposition="outside", cliponaxis=False,
             textfont=dict(color=TEXTO),
             hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]:,.0f} internações"
                           "<br>População: %{customdata[2]:,.0f}<br><b>%{x:,.1f}</b> por 1.000 hab.<extra></extra>")
@@ -782,7 +783,7 @@ if len(mp):
     ly["map" if _USA_MAP else "mapbox"] = dict(style=MAPA_STYLE, zoom=5.6,
                                                center=dict(lat=-22.5, lon=-48.6))
     fig.update_layout(**ly)
-    st.plotly_chart(fig, use_container_width=True, key="mapa", config=PLOTLY_CFG)
+    st.plotly_chart(fig, use_container_width=True, key="mapa", config=MAP_CFG)
     st.caption("🔴 ≥70% · 🟡 55–70% · 🟢 <55% · tamanho ∝ leitos SUS. Hospitais sem coordenada no CNES não aparecem.")
 else:
     st.info("Sem hospitais georreferenciados neste recorte.")
