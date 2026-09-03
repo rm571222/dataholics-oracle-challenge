@@ -13,7 +13,7 @@ st.set_page_config(page_title="Painel Hospitalar - SampaSUS", page_icon="🏥",
                    layout="wide", initial_sidebar_state="expanded")
 
 CHART_HEIGHT = 380
-MARGEM_PADRAO = dict(l=10, r=30, t=30, b=10)
+MARGEM_PADRAO = dict(l=20, r=40, t=30, b=30)
 SEPARADOR_BR = ",."
 OCUP_CRITICO = 70.0
 OCUP_ATENCAO = 55.0
@@ -77,7 +77,7 @@ h3 {{ color:{NAVY}; font-weight: 700; }}
 
 /* ---------- Gráficos Plotly: cartão com sombra + sem scroll ---------- */
 [data-testid="stPlotlyChart"] {{
-    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:18px; padding:8px 8px;
+    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:18px; padding:16px 18px;
     box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 10px 30px rgba(15,42,74,0.06);
     overflow: hidden; }}
 [data-testid="stPlotlyChart"] > div {{ overflow: hidden !important; }}
@@ -236,7 +236,7 @@ def barra_h(df, x, y_full, texto, titulo_x=None, altura=CHART_HEIGHT, cores=None
         xmax = float(vals.max() or 0)
         fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, xmax * 1.32])
     aplicar_tema(fig, altura=altura)
-    fig.update_layout(margin=dict(l=10, r=20, t=16, b=10))
+    fig.update_layout(margin=dict(l=20, r=30, t=20, b=24))
     return fig
 
 def status_ocup(v):
@@ -481,7 +481,7 @@ fig.update_yaxes(type="log", title_text="Internações", tickmode="array", tickv
 fig.update_xaxes(range=[piv.index.min() - pd.Timedelta(days=14),
                         piv.index.max() + pd.Timedelta(days=22)], row=2, col=1)
 aplicar_tema(fig, altura=540)
-fig.update_layout(hovermode="x unified", margin=dict(l=10, r=205, t=20, b=10))
+fig.update_layout(hovermode="x unified", margin=dict(l=20, r=205, t=20, b=24))
 st.plotly_chart(fig, use_container_width=True, key="evolucao", config=PLOTLY_CFG)
 
 
@@ -548,7 +548,7 @@ with cc:
                       yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
     fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.42])
     aplicar_tema(fig, altura=CHART_HEIGHT)
-    fig.update_layout(margin=dict(l=10, r=20, t=16, b=10))
+    fig.update_layout(margin=dict(l=20, r=30, t=20, b=24))
     st.plotly_chart(fig, use_container_width=True, key="perfil_etario", config=PLOTLY_CFG)
 
 # CSS: remove o cartão dos 3 gráficos acima (ficam "soltos", sem borda/sombra)
@@ -583,7 +583,7 @@ try:
             hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]:,.0f} internações"
                           "<br>População: %{customdata[2]:,.0f}<br><b>%{x:,.1f}</b> por 1.000 hab.<extra></extra>")
         fig.update_layout(yaxis_title=None, xaxis_title="Internações por 1.000 habitantes",
-                          yaxis=dict(automargin=True), margin=dict(l=10, r=60, t=16, b=10))
+                          yaxis=dict(automargin=True), margin=dict(l=20, r=60, t=20, b=24))
         aplicar_tema(fig, altura=max(360, len(pc) * 30))
         st.plotly_chart(fig, use_container_width=True, key="percapita", config=PLOTLY_CFG)
     else:
@@ -701,7 +701,7 @@ def ranking_hosp(df, col, titx, fmt, cores=None, ref=None, ref_txt=None):
         hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]}<br>" + titx + ": %{x:,.1f}<extra></extra>")
     fig.update_layout(yaxis_title=None, xaxis_title=titx,
                       yaxis=dict(automargin=True, categoryorder="array", categoryarray=ordem))
-    aplicar_tema(fig, altura=460); fig.update_layout(margin=dict(l=10, r=90, t=16, b=10))
+    aplicar_tema(fig, altura=460); fig.update_layout(margin=dict(l=20, r=90, t=20, b=24))
     if ref is not None:
         fig.add_vline(x=ref, line_dash='dash', line_color=COR_STATUS["Atenção"], annotation_text=ref_txt,
                       annotation_position="top right", annotation_font_size=10,
