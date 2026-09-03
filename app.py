@@ -9,37 +9,38 @@ import base64, os, zipfile, io, re, math
 # ============================================================
 # CONFIG GLOBAL
 # ============================================================
-st.set_page_config(page_title="Painel Hospitalar SP - SampaSUS", page_icon="🏥",
+st.set_page_config(page_title="Painel Hospitalar - SampaSUS", page_icon="🏥",
                    layout="wide", initial_sidebar_state="expanded")
 
 CHART_HEIGHT = 380
-MARGEM_PADRAO = dict(l=10, r=30, t=36, b=10)
+MARGEM_PADRAO = dict(l=10, r=30, t=30, b=10)
 SEPARADOR_BR = ",."
 OCUP_CRITICO = 70.0
 OCUP_ATENCAO = 55.0
+PLOTLY_CFG = {"displayModeBar": False, "scrollZoom": False}
+PLACEHOLDER = "Selecione..."
 _MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 # ============================================================
 # IDENTIDADE VISUAL — "Clinical Clean"
 # ============================================================
-PRIMARIA    = "#2563EB"   # indigo vivo (destaque / séries)
-ACENTO      = "#0EA5A4"   # teal (acento fresh de saúde)
+PRIMARIA    = "#2563EB"   # indigo vivo
+ACENTO      = "#0EA5A4"   # teal
 NAVY        = "#0F2A4A"   # títulos / texto forte
-TEXTO       = "#1E293B"   # texto principal
-TEXTO_SUAVE = "#64748B"   # secundário / captions
-BG          = "#F7F9FC"   # fundo geral
-CARD_BG     = "#FFFFFF"   # superfícies
-BORDA       = "#EAF0F7"   # bordas ultra-suaves
-GRID        = "rgba(15,42,74,0.06)"  # gridlines quase invisíveis
+TEXTO       = "#1E293B"
+TEXTO_SUAVE = "#64748B"
+BG          = "#F7F9FC"
+CARD_BG     = "#FFFFFF"
+BORDA       = "#EAF0F7"
+GRID        = "rgba(15,42,74,0.06)"
 MAPA_STYLE  = "carto-positron"
+POS = "#EF4444"   # inverse: aumento de internações = ruim (vermelho)
+NEG = "#10B981"   # inverse: queda = bom (verde)
 
-# Paleta categórica (harmônica, vibrante mas elegante)
 PALETA = ["#2563EB", "#0EA5A4", "#F59E0B", "#EC4899",
           "#8B5CF6", "#10B981", "#F43F5E", "#14B8A6", "#94A3B8"]
-# Status — tons refinados
 COR_STATUS = {"Crítico": "#EF4444", "Atenção": "#F59E0B", "Estável": "#10B981"}
 
-# Caminho do logo (assets/sampasus_logo.png)
 LOGO_PATH = os.path.join("assets", "sampasus_logo.png")
 
 st.markdown(f"""
@@ -57,32 +58,28 @@ st.markdown(f"""
 /* ---------- Tipografia ---------- */
 html, body, [class*="css"] {{ font-family: 'Inter', 'Segoe UI', sans-serif; }}
 h1 {{ color:{NAVY}; font-weight: 800; letter-spacing:-0.02em; }}
-h2 {{ color:{NAVY}; font-weight: 700; letter-spacing:-0.01em; position: relative; padding-left: 14px; }}
-h2::before {{ content:""; position:absolute; left:0; top:8px; bottom:8px; width:5px;
-    border-radius:6px; background: linear-gradient(180deg, {PRIMARIA}, {ACENTO}); }}
+h2 {{ color:{NAVY}; font-weight: 700; letter-spacing:-0.01em; }}
 h3 {{ color:{NAVY}; font-weight: 700; }}
 
-/* ---------- Métricas nativas (KPIs) ---------- */
-[data-testid="stMetric"] {{
-    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:16px;
+/* ---------- Métricas nativas (não usadas nos KPIs, mas mantém padrão) ---------- */
+[data-testid="stMetric"] {{ background:{CARD_BG}; border:1px solid {BORDA}; border-radius:16px;
     padding:18px 20px; min-height:120px;
-    box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 8px 24px rgba(15,42,74,0.06);
-    transition: transform .15s ease, box-shadow .15s ease; }}
-[data-testid="stMetric"]:hover {{ transform: translateY(-2px);
-    box-shadow: 0 2px 6px rgba(15,42,74,0.06), 0 14px 32px rgba(15,42,74,0.10); }}
+    box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 8px 24px rgba(15,42,74,0.06); }}
 [data-testid="stMetricValue"] {{ color:{NAVY}; font-weight:800; }}
 [data-testid="stMetricLabel"] {{ color:{TEXTO_SUAVE}; font-weight:600; }}
 
 /* ---------- Containers com borda ---------- */
 [data-testid="stVerticalBlockBorderWrapper"] {{
     background:{CARD_BG}; border:1px solid {BORDA} !important; border-radius:18px !important;
-    padding:8px 6px 4px !important;
+    padding:6px 6px 2px !important;
     box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 10px 30px rgba(15,42,74,0.06); }}
 
-/* ---------- Gráficos Plotly: cartão com sombra ---------- */
+/* ---------- Gráficos Plotly: cartão com sombra + sem scroll ---------- */
 [data-testid="stPlotlyChart"] {{
-    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:18px; padding:10px 8px;
-    box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 10px 30px rgba(15,42,74,0.06); }}
+    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:18px; padding:8px 8px;
+    box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 10px 30px rgba(15,42,74,0.06);
+    overflow: hidden; }}
+[data-testid="stPlotlyChart"] > div {{ overflow: hidden !important; }}
 [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stPlotlyChart"] {{
     border:none; box-shadow:none; padding:0; background:transparent; }}
 
@@ -111,8 +108,10 @@ section[data-testid="stSidebar"] div[data-testid="stImage"] img {{ border-radius
 .sec-divider {{ border:none; height:1px; margin:2.4rem 0 1.2rem;
     background: linear-gradient(90deg, {BORDA}, rgba(234,240,247,0)); }}
 
-/* ---------- Trio de gráficos ---------- */
-.trio-col h3 {{ text-align:center; }}
+/* ---------- Título dos gráficos do trio ---------- */
+.trio-title {{ text-align:center; color:{NAVY}; font-weight:700; font-size:1.05rem;
+    margin: 0.2rem 0 0.5rem; }}
+.info-ico {{ cursor:help; color:{TEXTO_SUAVE}; font-size:0.8rem; margin-left:5px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -191,7 +190,7 @@ def lst_sql(vals):
 
 
 # ============================================================
-# TEMA (claro, moderno)
+# TEMA (claro, moderno) — sem title_font (evita "undefined")
 # ============================================================
 def aplicar_tema(fig, altura=CHART_HEIGHT, legenda=False):
     fig.update_layout(template="plotly_white", height=altura, colorway=PALETA,
@@ -200,7 +199,7 @@ def aplicar_tema(fig, altura=CHART_HEIGHT, legenda=False):
                       hoverlabel=dict(bgcolor="white", bordercolor=BORDA,
                                       font_size=12, font_family="Inter, Segoe UI"),
                       showlegend=legenda, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                      title_font=dict(color=NAVY, size=15))
+                      title=dict(text=""))
     if legenda:
         fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02,
                                       xanchor="left", x=0, title=dict(text="")))
@@ -214,8 +213,8 @@ def aplicar_tema(fig, altura=CHART_HEIGHT, legenda=False):
     return fig
 
 def barra_h(df, x, y_full, texto, titulo_x=None, altura=CHART_HEIGHT, cores=None,
-            eixo_x=True, ordem_cat=None):
-    """Barra horizontal padronizada. eixo_x=False esconde ticks e abre headroom p/ rótulos."""
+            eixo_x=True, ordem_cat=None, log_x=False):
+    """Barra horizontal padronizada. eixo_x=False esconde ticks; log_x usa escala log."""
     d = df.copy()
     d["_y"] = d[y_full].apply(truncar)
     ordem = ordem_cat if ordem_cat is not None else d["_y"].tolist()
@@ -227,11 +226,16 @@ def barra_h(df, x, y_full, texto, titulo_x=None, altura=CHART_HEIGHT, cores=None
                       hovertemplate="<b>%{customdata[0]}</b><br>%{x:,.0f}<extra></extra>")
     fig.update_layout(yaxis_title=None, xaxis_title=(titulo_x if eixo_x else None),
                       yaxis=dict(automargin=True, categoryorder="array", categoryarray=ordem))
-    if not eixo_x:
-        xmax = float(pd.to_numeric(d[x], errors="coerce").replace([float('inf')], pd.NA).max() or 0)
+    vals = pd.to_numeric(d[x], errors="coerce").replace([float('inf')], pd.NA)
+    if log_x:
+        vmin = float(vals[vals > 0].min() or 1); vmax = float(vals.max() or 1)
+        fig.update_xaxes(type="log", showticklabels=False, showgrid=False,
+                         range=[math.log10(vmin * 0.55), math.log10(vmax * 1.8)])
+    elif not eixo_x:
+        xmax = float(vals.max() or 0)
         fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, xmax * 1.32])
     aplicar_tema(fig, altura=altura)
-    fig.update_layout(margin=dict(l=10, r=20, t=30, b=10))
+    fig.update_layout(margin=dict(l=10, r=20, t=16, b=10))
     return fig
 
 def status_ocup(v):
@@ -239,6 +243,24 @@ def status_ocup(v):
     if v >= OCUP_CRITICO: return "Crítico"
     if v >= OCUP_ATENCAO: return "Atenção"
     return "Estável"
+
+def _info(help_txt):
+    return (f"<span class='info-ico' title=\"{help_txt}\">&#9432;</span>" if help_txt else "")
+
+def card_kpi(titulo, valor, rodape="", help_txt="", delta_txt="", delta_up=None):
+    if delta_txt:
+        cor = POS if delta_up else NEG
+        seta = "&#8593;" if delta_up else "&#8595;"
+        rod = (f"<div style='color:{cor}; font-size:0.85rem; font-weight:600; margin-top:0.45rem;'>"
+               f"{seta} {delta_txt}</div>")
+    else:
+        rod = (f"<div style='color:{TEXTO_SUAVE}; font-size:0.85rem; margin-top:0.45rem;'>{rodape}</div>"
+               if rodape else "")
+    return (f"<div style='background:{CARD_BG}; border:1px solid {BORDA}; border-radius:16px; padding:18px 20px; "
+            f"min-height:132px; box-shadow:0 1px 2px rgba(15,42,74,0.04),0 10px 30px rgba(15,42,74,0.06);'>"
+            f"<div style='color:{TEXTO_SUAVE}; font-size:0.9rem; font-weight:600;'>{titulo}{_info(help_txt)}</div>"
+            f"<div style='font-size:2.2rem; font-weight:800; color:{NAVY}; line-height:1.2; margin-top:0.3rem;'>{valor}</div>"
+            f"{rod}</div>")
 
 def mini_card(cor, emoji, tit, val, sub=""):
     sub_html = f"<div style='color:{cor}; font-size:0.8rem; font-weight:600;'>{sub}</div>" if sub else ""
@@ -248,6 +270,9 @@ def mini_card(cor, emoji, tit, val, sub=""):
             f"<div style='color:{TEXTO_SUAVE}; font-size:0.8rem; font-weight:600;'>{emoji} {tit}</div>"
             f"<div style='font-size:1.8rem; font-weight:800; color:{NAVY}; line-height:1.15;'>{fmt_num(val)}</div>"
             f"{sub_html}</div>")
+
+def titulo_trio(txt, help_txt=""):
+    st.markdown(f"<div class='trio-title'>{txt}{_info(help_txt)}</div>", unsafe_allow_html=True)
 
 
 # ============================================================
@@ -273,7 +298,6 @@ def carregar_dim():
 
 @st.cache_data(ttl=3600)
 def carregar_valores(coluna):
-    """Valores distintos de uma coluna categórica da base fato (para filtros)."""
     df = consultar(f"""SELECT DISTINCT {coluna} AS v FROM VW_INTERNACAO_COMPLETA
         WHERE {coluna} IS NOT NULL ORDER BY {coluna}""")
     return df['V'].dropna().astype(str).tolist()
@@ -291,10 +315,10 @@ competencias = range_competencias(ini_comp, fim_comp)
 
 
 # ============================================================
-# SIDEBAR — LOGO + FILTROS (Seção 2 em diante)
+# SIDEBAR — LOGO + FILTROS
 # ============================================================
 if os.path.exists(LOGO_PATH):
-    _lc = st.sidebar.columns([1, 4, 1])   # centraliza o logo num tamanho contido
+    _lc = st.sidebar.columns([1, 4, 1])
     _lc[1].image(LOGO_PATH, use_container_width=True)
 
 st.sidebar.title("🎛️ Filtros")
@@ -304,21 +328,21 @@ periodo_sel = st.sidebar.select_slider(
     "Período (competência)", options=competencias,
     value=(ini_comp, fim_comp), format_func=mes_curto)
 regioes_sel = st.sidebar.multiselect(
-    "Região de saúde", sorted(dim['NM_REGIAO_SAUDE'].dropna().unique()))
+    "Região de saúde", sorted(dim['NM_REGIAO_SAUDE'].dropna().unique()), placeholder=PLACEHOLDER)
 dim_m = dim[dim['NM_REGIAO_SAUDE'].isin(regioes_sel)] if regioes_sel else dim
 municipios_sel = st.sidebar.multiselect(
-    "Município", sorted(dim_m['NM_MUNICIPIO'].dropna().unique()))
+    "Município", sorted(dim_m['NM_MUNICIPIO'].dropna().unique()), placeholder=PLACEHOLDER)
 esferas_sel = st.sidebar.multiselect(
-    "Esfera administrativa", sorted(dim['ESFERA_ADMIN'].dropna().unique()))
+    "Esfera administrativa", sorted(dim['ESFERA_ADMIN'].dropna().unique()), placeholder=PLACEHOLDER)
 carater_sel = st.sidebar.multiselect(
-    "Caráter da internação", carregar_valores("ds_carater_internacao"))
+    "Caráter da internação", carregar_valores("ds_carater_internacao"), placeholder=PLACEHOLDER)
 complex_sel = st.sidebar.multiselect(
-    "Complexidade", carregar_valores("ds_complexidade"))
+    "Complexidade", carregar_valores("ds_complexidade"), placeholder=PLACEHOLDER)
 sexo_sel = st.sidebar.multiselect(
-    "Sexo", carregar_valores("ds_sexo"))
+    "Sexo", carregar_valores("ds_sexo"), placeholder=PLACEHOLDER)
 raca_sel = st.sidebar.multiselect(
-    "Raça/cor", carregar_valores("ds_raca_cor"))
-diag_sel = []  # filtro de diagnóstico removido (volume alto demais)
+    "Raça/cor", carregar_valores("ds_raca_cor"), placeholder=PLACEHOLDER)
+diag_sel = []
 
 if st.sidebar.button("↺ Limpar filtros"):
     st.rerun()
@@ -359,7 +383,7 @@ recorte_txt = (f"{mes_curto(comp_ini)} a {mes_curto(comp_fim)}"
 # ============================================================
 # CABEÇALHO
 # ============================================================
-st.title("🏥 Painel Hospitalar SP — SampaSUS")
+st.title("🏥 Painel Hospitalar — SampaSUS")
 st.caption(f"Dados SIH/DATASUS, {mes_curto(ini_comp)} a {mes_curto(fim_comp)} · "
            f"Dados atualizados em 01/{mes_curto(fim_comp)}")
 
@@ -389,23 +413,26 @@ d12 = ((u12-u12a)/u12a*100) if u12a else 0
 dytd = ((ytd-ytda)/ytda*100) if ytda else 0
 dmes = ((mes-mesa)/mesa*100) if mesa else 0
 
-def card_total(tit, val, rod):
-    return (f"<div style='background:{CARD_BG}; border:1px solid {BORDA}; border-radius:16px; padding:18px 20px; "
-            f"min-height:120px; box-shadow:0 1px 2px rgba(15,42,74,0.04),0 10px 30px rgba(15,42,74,0.06);'>"
-            f"<div style='color:{TEXTO_SUAVE}; font-size:0.9rem; font-weight:600;'>{tit}</div>"
-            f"<div style='font-size:2.3rem; font-weight:800; color:{NAVY}; line-height:1.2; margin-top:0.2rem;'>{val}</div>"
-            f"<div style='color:{TEXTO_SUAVE}; font-size:0.85rem; margin-top:0.4rem;'>{rod}</div></div>")
-
 k1, k2, k3, k4 = st.columns(4)
-k1.markdown(card_total("Total de Internações", fmt_num(total_geral),
-                       f"{mes_curto(ini_comp)} a {mes_curto(fim_comp)}"), unsafe_allow_html=True)
-k2.metric("Últimos 12 Meses", fmt_num(u12), delta=f"{fmt_num(d12,1)}% vs. 12m anteriores", delta_color="inverse")
-k3.metric(f"YTD ({mes_curto(fim_ano*100+1)} a {mes_curto(fim_comp)})", fmt_num(ytd),
-          delta=f"{fmt_num(dytd,1)}% vs. YTD {fim_ano-1}", delta_color="inverse")
-k4.metric(f"Último Mês ({mes_curto(fim_comp)})", fmt_num(mes),
-          delta=f"{fmt_num(dmes,1)}% vs. mês anterior", delta_color="inverse")
+k1.markdown(card_kpi("Total de Internações", fmt_num(total_geral),
+                     rodape=f"{mes_curto(ini_comp)} a {mes_curto(fim_comp)}",
+                     help_txt=f"Soma de todas as internações registradas no período completo "
+                              f"({mes_curto(ini_comp)} a {mes_curto(fim_comp)})."), unsafe_allow_html=True)
+k2.markdown(card_kpi("Últimos 12 Meses", fmt_num(u12),
+                     delta_txt=f"{fmt_num(abs(d12),1)}% vs. 12m anteriores", delta_up=(d12 >= 0),
+                     help_txt="Soma dos 12 meses mais recentes, comparada com os 12 meses "
+                              "imediatamente anteriores."), unsafe_allow_html=True)
+k3.markdown(card_kpi(f"YTD ({mes_curto(fim_ano*100+1)} a {mes_curto(fim_comp)})", fmt_num(ytd),
+                     delta_txt=f"{fmt_num(abs(dytd),1)}% vs. YTD {fim_ano-1}", delta_up=(dytd >= 0),
+                     help_txt=f"Year to Date: soma de janeiro até {mes_curto(fim_comp)}, comparada "
+                              f"ao mesmo intervalo de {fim_ano-1}."), unsafe_allow_html=True)
+k4.markdown(card_kpi(f"Último Mês ({mes_curto(fim_comp)})", fmt_num(mes),
+                     delta_txt=f"{fmt_num(abs(dmes),1)}% vs. mês anterior", delta_up=(dmes >= 0),
+                     help_txt="Total do mês mais recente, comparado com o mês imediatamente anterior."),
+            unsafe_allow_html=True)
 
 st.subheader("📈 Evolução Mensal de Internações")
+st.caption("Linha superior: total do estado de SP · linhas inferiores: as 5 regiões de maior volume do estado.")
 top5 = consultar("""SELECT nm_regiao_saude FROM VW_VOLUME_REGIAO
     ORDER BY qtd_internacoes DESC FETCH FIRST 5 ROWS ONLY""")['NM_REGIAO_SAUDE'].tolist()
 tc = consultar("""SELECT nm_regiao_saude, nr_ano_competencia, nr_mes_competencia, qtd_internacoes
@@ -416,35 +443,51 @@ total_mes = tc.groupby('competencia')['QTD_INTERNACOES'].sum().reset_index()
 piv = (tc[tc['NM_REGIAO_SAUDE'].isin(top5)]
        .pivot_table(index='competencia', columns='NM_REGIAO_SAUDE', values='QTD_INTERNACOES', aggfunc='sum')
        .sort_index())
-fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-                    row_heights=[0.22, 0.78], subplot_titles=("", "Top 5 Regiões"))
+fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+                    row_heights=[0.22, 0.78], subplot_titles=("", ""))
+# Painel superior: Total do estado
 fig.add_trace(go.Scatter(x=total_mes['competencia'], y=total_mes['QTD_INTERNACOES'],
     mode="lines+markers+text", line=dict(color=NAVY, width=3, shape="spline"),
     marker=dict(size=4, color=NAVY),
     text=[fmt_compacto(v) for v in total_mes['QTD_INTERNACOES']], textposition="top center",
-    textfont=dict(size=10, color=TEXTO_SUAVE), hovertemplate="Total: %{y:,.0f}<extra></extra>",
+    textfont=dict(size=10, color=TEXTO_SUAVE), hovertemplate="Total SP: %{y:,.0f}<extra></extra>",
     showlegend=False), row=1, col=1)
-fig.add_trace(go.Scatter(x=[total_mes['competencia'].iloc[-1] + pd.Timedelta(days=8)],
-    y=[total_mes['QTD_INTERNACOES'].iloc[-1]], mode="text",
-    text=[f"Total — {fmt_compacto(total_mes['QTD_INTERNACOES'].iloc[-1])}"], textposition="middle right",
+_ux = total_mes['competencia'].iloc[-1]; _uy = total_mes['QTD_INTERNACOES'].iloc[-1]
+fig.add_trace(go.Scatter(x=[_ux + pd.Timedelta(days=10)], y=[_uy], mode="text",
+    text=[f"Estado SP — {fmt_compacto(_uy)}"], textposition="middle right",
     textfont=dict(color=NAVY, size=12), cliponaxis=False, hoverinfo="skip", showlegend=False), row=1, col=1)
+
+# Painel inferior: Top 5 regiões
 for i, nome in enumerate(top5):
     if nome in piv.columns:
         cor = PALETA[i % len(PALETA)]
         fig.add_trace(go.Scatter(x=piv.index, y=piv[nome], name=nome, mode="lines",
             line=dict(width=2.5, color=cor, shape="spline"),
             hovertemplate=f"<b>{nome}</b>: %{{y:,.0f}}<extra></extra>"), row=2, col=1)
-        fig.add_trace(go.Scatter(x=[piv.index[-1] + pd.Timedelta(days=8)], y=[piv[nome].iloc[-1]],
-            mode="text", text=[truncar(nome,22)], textposition="middle right",
-            textfont=dict(color=cor, size=10), cliponaxis=False, hoverinfo="skip", showlegend=False), row=2, col=1)
-fig.update_yaxes(visible=False, row=1, col=1)
+# Rótulos finais (nome + valor) com anti-colisão em escala log
+_finais = [(nome, float(piv[nome].iloc[-1]), PALETA[i % len(PALETA)])
+           for i, nome in enumerate(top5) if nome in piv.columns]
+_ypos = {}; _last = None; _ratio = 1.16
+for nome, val, cor in sorted(_finais, key=lambda t: t[1]):
+    y = val if _last is None or val >= _last * _ratio else _last * _ratio
+    _ypos[nome] = y; _last = y
+for nome, val, cor in _finais:
+    fig.add_trace(go.Scatter(x=[piv.index[-1] + pd.Timedelta(days=10)], y=[_ypos[nome]],
+        mode="text", text=[f"{truncar(nome,20)} — {fmt_compacto(val)}"],
+        textposition="middle right", textfont=dict(color=cor, size=10),
+        cliponaxis=False, hoverinfo="skip", showlegend=False), row=2, col=1)
+
+# eixos: headroom no total + folga à esquerda p/ não cortar o 1º rótulo
+fig.update_yaxes(visible=False, range=[total_mes['QTD_INTERNACOES'].min()*0.85,
+                                       total_mes['QTD_INTERNACOES'].max()*1.18], row=1, col=1)
 _tk = [10000,20000,30000,40000,50000,60000,70000]
 fig.update_yaxes(type="log", title_text="Internações", tickmode="array", tickvals=_tk,
                  ticktext=[fmt_compacto(v) for v in _tk], row=2, col=1)
-fig.update_xaxes(range=[piv.index.min(), piv.index.max() + pd.Timedelta(days=20)], row=2, col=1)
+fig.update_xaxes(range=[piv.index.min() - pd.Timedelta(days=14),
+                        piv.index.max() + pd.Timedelta(days=22)], row=2, col=1)
 aplicar_tema(fig, altura=540)
-fig.update_layout(hovermode="x unified", margin=dict(l=10, r=200, t=30, b=10))
-st.plotly_chart(fig, use_container_width=True, key="evolucao")
+fig.update_layout(hovermode="x unified", margin=dict(l=10, r=205, t=20, b=10))
+st.plotly_chart(fig, use_container_width=True, key="evolucao", config=PLOTLY_CFG)
 
 
 # ============================================================
@@ -459,32 +502,29 @@ if kpi == 0:
     st.warning("Nenhuma internação para os filtros selecionados. Ajuste os filtros na barra lateral.")
     st.stop()
 
-def titulo_centro(txt):
-    st.markdown(f"<h3 style='text-align:center; margin:0 0 0.3rem;'>{txt}</h3>", unsafe_allow_html=True)
-
 ca, cb, cc = st.columns(3)
 with ca:
+    titulo_trio("🏙️ Top 10 Regiões", "Regiões de saúde com maior volume de internações no recorte (escala log).")
     with st.container(border=True):
-        titulo_centro("🏙️ Top 10 Regiões")
         d = consultar(f"""SELECT nm_regiao_saude, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
             GROUP BY nm_regiao_saude ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
         d['label'] = d['QTD'].apply(fmt_compacto)
-        _f = barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', eixo_x=False)
+        _f = barra_h(d, 'QTD', 'NM_REGIAO_SAUDE', 'label', log_x=True)
         _f.update_traces(marker_color=PALETA[0])
-        st.plotly_chart(_f, use_container_width=True, key="top_reg")
+        st.plotly_chart(_f, use_container_width=True, key="top_reg", config=PLOTLY_CFG)
 with cb:
+    titulo_trio("🩺 Top 10 Causas", "Diagnósticos (CID) com maior número de internações no recorte.")
     with st.container(border=True):
-        titulo_centro("🩺 Top 10 Causas")
         d = consultar(f"""SELECT ds_diagnostico, COUNT(*) AS qtd FROM VW_INTERNACAO_COMPLETA {where}
             GROUP BY ds_diagnostico ORDER BY qtd DESC FETCH FIRST 10 ROWS ONLY""").sort_values('QTD')
         d['DS_DIAGNOSTICO'] = d['DS_DIAGNOSTICO'].apply(simplificar_causa)
         d['label'] = d['QTD'].apply(fmt_compacto)
         _f = barra_h(d, 'QTD', 'DS_DIAGNOSTICO', 'label', eixo_x=False)
         _f.update_traces(marker_color=PALETA[1])
-        st.plotly_chart(_f, use_container_width=True, key="top_causa")
+        st.plotly_chart(_f, use_container_width=True, key="top_causa", config=PLOTLY_CFG)
 with cc:
+    titulo_trio("👥 Faixa etária × Óbito", "Distribuição por faixa etária e a taxa de óbito de cada faixa.")
     with st.container(border=True):
-        titulo_centro("👥 Faixa etária × Óbito")
         d = consultar(f"""SELECT
                 CASE WHEN nr_idade < 1  THEN '0 (< 1 ano)'
                      WHEN nr_idade < 15 THEN '1-14'
@@ -516,8 +556,8 @@ with cc:
                           yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
         fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.42])
         aplicar_tema(fig, altura=CHART_HEIGHT)
-        fig.update_layout(margin=dict(l=10, r=20, t=30, b=10))
-        st.plotly_chart(fig, use_container_width=True, key="perfil_etario")
+        fig.update_layout(margin=dict(l=10, r=20, t=16, b=10))
+        st.plotly_chart(fig, use_container_width=True, key="perfil_etario", config=PLOTLY_CFG)
 
 # --- Internações por 1.000 habitantes ---
 st.subheader("👥 Internações por 1.000 habitantes (por região)")
@@ -542,9 +582,9 @@ try:
             hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]:,.0f} internações"
                           "<br>População: %{customdata[2]:,.0f}<br><b>%{x:,.1f}</b> por 1.000 hab.<extra></extra>")
         fig.update_layout(yaxis_title=None, xaxis_title="Internações por 1.000 habitantes",
-                          yaxis=dict(automargin=True), margin=dict(l=10, r=60, t=30, b=10))
+                          yaxis=dict(automargin=True), margin=dict(l=10, r=60, t=16, b=10))
         aplicar_tema(fig, altura=max(360, len(pc) * 30))
-        st.plotly_chart(fig, use_container_width=True, key="percapita")
+        st.plotly_chart(fig, use_container_width=True, key="percapita", config=PLOTLY_CFG)
     else:
         st.info("Sem correspondência de população para as regiões deste recorte.")
 except Exception as e:
@@ -623,7 +663,7 @@ if n_t:
     for ann in fb.layout.annotations:
         if ann.text in ("Internações (volume)", "Taxa de ocupação de leitos SUS (%)"):
             ann.yshift = 10
-    st.plotly_chart(fb, use_container_width=True, key="borboleta")
+    st.plotly_chart(fb, use_container_width=True, key="borboleta", config=PLOTLY_CFG)
 
 
 # ============================================================
@@ -643,7 +683,6 @@ mn = dim[['CD_HOSPITAL', 'NM_HOSPITAL', 'NM_REGIAO_SAUDE']].copy()
 mn['CD_HOSPITAL'] = mn['CD_HOSPITAL'].astype(str).str.zfill(10)
 hosp = hosp.merge(mn, on='CD_HOSPITAL', how='left')
 hosp['NM_HOSPITAL'] = hosp['NM_HOSPITAL'].fillna('Hospital ' + hosp['CD_HOSPITAL'])
-# Ocupação só faz sentido com leitos SUS > 0; senão vira inf (bug da barra vazia).
 hosp['TAXA_OCUPACAO'] = pd.NA
 _ok = hosp['LEITOS_SUS'].notna() & (hosp['LEITOS_SUS'] > 0)
 hosp.loc[_ok, 'TAXA_OCUPACAO'] = (
@@ -661,7 +700,7 @@ def ranking_hosp(df, col, titx, fmt, cores=None, ref=None, ref_txt=None):
         hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]}<br>" + titx + ": %{x:,.1f}<extra></extra>")
     fig.update_layout(yaxis_title=None, xaxis_title=titx,
                       yaxis=dict(automargin=True, categoryorder="array", categoryarray=ordem))
-    aplicar_tema(fig, altura=460); fig.update_layout(margin=dict(l=10, r=90, t=30, b=10))
+    aplicar_tema(fig, altura=460); fig.update_layout(margin=dict(l=10, r=90, t=16, b=10))
     if ref is not None:
         fig.add_vline(x=ref, line_dash='dash', line_color=COR_STATUS["Atenção"], annotation_text=ref_txt,
                       annotation_position="top right", annotation_font_size=10,
@@ -673,23 +712,23 @@ st.caption(f"Linha = média estadual ({fmt_num(perm_estadual,1)} dias). Hospitai
 tp = hosp.sort_values('PERMANENCIA', ascending=False).head(12).sort_values('PERMANENCIA')
 st.plotly_chart(ranking_hosp(tp, 'PERMANENCIA', 'Permanência (dias)',
     lambda v: f"{fmt_num(v,1)} dias", cores=PALETA[1], ref=perm_estadual, ref_txt=f"Média: {fmt_num(perm_estadual,1)}d"),
-    use_container_width=True, key="h_perm")
+    use_container_width=True, key="h_perm", config=PLOTLY_CFG)
 
 st.subheader("🏥 Maiores capacidades (leitos SUS)")
 tl = hosp[hosp['LEITOS_SUS'].notna()].sort_values('LEITOS_SUS', ascending=False).head(12).sort_values('LEITOS_SUS')
 f = ranking_hosp(tl, 'LEITOS_SUS', 'Leitos SUS', lambda v: fmt_inteiro(v)); f.update_traces(marker_color=PALETA[0])
-st.plotly_chart(f, use_container_width=True, key="h_leitos")
+st.plotly_chart(f, use_container_width=True, key="h_leitos", config=PLOTLY_CFG)
 
 st.subheader("📊 Maiores taxas de ocupação de leitos SUS")
 st.caption("🔴 ≥ 70% · 🟡 55–70% · 🟢 < 55%. Acima de 100% = demanda maior que a capacidade.")
 to = hosp[hosp['TAXA_OCUPACAO'].notna()].sort_values('TAXA_OCUPACAO', ascending=False).head(12).sort_values('TAXA_OCUPACAO')
 cores_o = to['TAXA_OCUPACAO'].apply(status_ocup).map(COR_STATUS).tolist()
 st.plotly_chart(ranking_hosp(to, 'TAXA_OCUPACAO', 'Ocupação (%)',
-    lambda v: f"{fmt_num(v,1)}%", cores=cores_o), use_container_width=True, key="h_ocup")
+    lambda v: f"{fmt_num(v,1)}%", cores=cores_o), use_container_width=True, key="h_ocup", config=PLOTLY_CFG)
 
 
 # ============================================================
-# SEÇÃO 5 — MAPA (cereja do bolo; com filtros)
+# SEÇÃO 5 — MAPA (com filtros)
 # ============================================================
 divisor()
 st.header("🗺️ Mapa — Hospitais")
@@ -702,7 +741,6 @@ mp = mp[(mp['LATITUDE'].between(-25.5, -19.5)) & (mp['LONGITUDE'].between(-53.5,
 mp['status'] = mp['TAXA_OCUPACAO'].apply(status_ocup)
 mp['_size'] = mp['LEITOS_SUS'].fillna(0).clip(lower=0) + 20
 
-# KPIs do mapa
 m_total = len(mp)
 m_crit = int((mp['status'] == "Crítico").sum())
 m_aten = int((mp['status'] == "Atenção").sum())
@@ -744,7 +782,7 @@ if len(mp):
     ly["map" if _USA_MAP else "mapbox"] = dict(style=MAPA_STYLE, zoom=5.6,
                                                center=dict(lat=-22.5, lon=-48.6))
     fig.update_layout(**ly)
-    st.plotly_chart(fig, use_container_width=True, key="mapa")
+    st.plotly_chart(fig, use_container_width=True, key="mapa", config=PLOTLY_CFG)
     st.caption("🔴 ≥70% · 🟡 55–70% · 🟢 <55% · tamanho ∝ leitos SUS. Hospitais sem coordenada no CNES não aparecem.")
 else:
     st.info("Sem hospitais georreferenciados neste recorte.")
