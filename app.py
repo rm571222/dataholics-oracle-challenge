@@ -232,7 +232,8 @@ competencias = range_competencias(ini_comp, fim_comp)
 # SIDEBAR — LOGO + FILTROS (Seção 2 em diante)
 # ============================================================
 if os.path.exists(LOGO_PATH):
-    st.sidebar.image(LOGO_PATH, use_container_width=True)
+    _lc = st.sidebar.columns([1, 4, 1])
+    _lc[1].image(LOGO_PATH, use_container_width=True)
 
 st.sidebar.title("🎛️ Filtros")
 st.sidebar.caption("Aplicam-se da Seção 2 em diante.")
