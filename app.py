@@ -42,7 +42,7 @@ PALETA = ["#2563EB", "#0EA5A4", "#F59E0B", "#EC4899",
           "#8B5CF6", "#10B981", "#F43F5E", "#14B8A6", "#94A3B8"]
 COR_STATUS = {"Crítico": "#EF4444", "Atenção": "#F59E0B", "Estável": "#10B981"}
 
-LOGO_PATH = os.path.join("assets", "sampasus_logo.png")
+LOGO_PATH = os.path.join("docs", "sampasus_logo.png")
 
 st.markdown(f"""
 <style>
@@ -77,10 +77,10 @@ h3 {{ color:{NAVY}; font-weight: 700; }}
 
 /* ---------- Gráficos Plotly: cartão com sombra + sem scroll ---------- */
 [data-testid="stPlotlyChart"] {{
-    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:18px; padding:16px 18px;
-    box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 10px 30px rgba(15,42,74,0.06);
-    overflow: hidden; }}
-[data-testid="stPlotlyChart"] > div {{ overflow: hidden !important; }}
+    background:{CARD_BG}; border:1px solid {BORDA}; border-radius:18px; padding:16px 18px 20px;
+    box-shadow: 0 1px 2px rgba(15,42,74,0.04), 0 10px 30px rgba(15,42,74,0.06); }}
+[data-testid="stPlotlyChart"] .js-plotly-plot {{ border-radius: 12px; }}
+
 [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stPlotlyChart"] {{
     border:none; box-shadow:none; padding:0; background:transparent; }}
 
@@ -481,7 +481,7 @@ fig.update_yaxes(type="log", title_text="Internações", tickmode="array", tickv
 fig.update_xaxes(range=[piv.index.min() - pd.Timedelta(days=14),
                         piv.index.max() + pd.Timedelta(days=22)], row=2, col=1)
 aplicar_tema(fig, altura=540)
-fig.update_layout(hovermode="x unified", margin=dict(l=48, r=205, t=20, b=24))
+fig.update_layout(hovermode="x unified", margin=dict(l=48, r=205, t=20, b=45))
 st.plotly_chart(fig, use_container_width=True, key="evolucao", config=PLOTLY_CFG)
 
 
