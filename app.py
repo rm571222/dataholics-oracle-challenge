@@ -231,12 +231,12 @@ def barra_h(df, x, y_full, texto, titulo_x=None, altura=CHART_HEIGHT, cores=None
     if log_x:
         vmin = float(vals[vals > 0].min() or 1); vmax = float(vals.max() or 1)
         fig.update_xaxes(type="log", showticklabels=False, showgrid=False,
-                         range=[math.log10(vmin * 0.55), math.log10(vmax * 1.8)])
+                         range=[math.log10(vmin * 0.55), math.log10(vmax * 2.6)])
     elif not eixo_x:
         xmax = float(vals.max() or 0)
-        fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, xmax * 1.32])
+        fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, xmax * 1.45])
     aplicar_tema(fig, altura=altura)
-    fig.update_layout(margin=dict(l=20, r=30, t=20, b=24))
+    fig.update_layout(margin=dict(l=20, r=45, t=20, b=24))
     return fig
 
 def status_ocup(v):
@@ -481,7 +481,7 @@ fig.update_yaxes(type="log", title_text="Internações", tickmode="array", tickv
 fig.update_xaxes(range=[piv.index.min() - pd.Timedelta(days=14),
                         piv.index.max() + pd.Timedelta(days=22)], row=2, col=1)
 aplicar_tema(fig, altura=540)
-fig.update_layout(hovermode="x unified", margin=dict(l=20, r=205, t=20, b=24))
+fig.update_layout(hovermode="x unified", margin=dict(l=48, r=205, t=20, b=24))
 st.plotly_chart(fig, use_container_width=True, key="evolucao", config=PLOTLY_CFG)
 
 
@@ -546,9 +546,9 @@ with cc:
         hovertemplate="Faixa %{y}<br>%{x:,.0f} internações<br>%{customdata[0]:,.1f}% óbito<extra></extra>")
     fig.update_layout(yaxis_title=None, xaxis_title=None,
                       yaxis=dict(categoryorder="array", categoryarray=_ordem_faixa, automargin=True))
-    fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.42])
+    fig.update_xaxes(showticklabels=False, showgrid=False, range=[0, _xmax * 1.75])
     aplicar_tema(fig, altura=CHART_HEIGHT)
-    fig.update_layout(margin=dict(l=20, r=30, t=20, b=24))
+    fig.update_layout(margin=dict(l=20, r=40, t=20, b=24))
     st.plotly_chart(fig, use_container_width=True, key="perfil_etario", config=PLOTLY_CFG)
 
 # CSS: remove o cartão dos 3 gráficos acima (ficam "soltos", sem borda/sombra)
