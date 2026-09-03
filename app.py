@@ -33,16 +33,13 @@ BORDA       = "#E2E8F0"   # bordas sutis
 GRID        = "rgba(28,40,51,0.08)"
 MAPA_STYLE  = "carto-positron"
 
-try:
-    with open(os.path.join("docs", "sampasus_logo.png"), "rb") as _f:
-        _LOGO_B64 = base64.b64encode(_f.read()).decode()
-except Exception:
-    _LOGO_B64 = ""
+# Caminho do logo (assets/sampasus_logo.png)
+LOGO_PATH = os.path.join("assets", "sampasus_logo.png")
 
 st.markdown(f"""
 <style>
-/* Centraliza o conteúdo (sidebar aberta ou fechada) + respiro p/ o logo */
-.block-container {{ padding-top: 3.2rem; padding-bottom: 2rem; max-width: 1500px;
+/* Centraliza o conteúdo (sidebar aberta ou fechada) */
+.block-container {{ padding-top: 2rem; padding-bottom: 2rem; max-width: 1500px;
     margin-left: auto !important; margin-right: auto !important; }}
 [data-testid="stMain"] {{ display: flex; flex-direction: column; align-items: center; }}
 [data-testid="stMain"] .block-container {{ width: 100%; }}
@@ -59,15 +56,11 @@ section[data-testid="stSidebar"] .stSlider label {{ font-size: 0.85rem; margin-b
 .trio-col {{ border-right:1px solid {BORDA}; padding:0 14px; }}
 .trio-col:last-child {{ border-right:none; }}
 .trio-col h3 {{ text-align:center; }}
-/* Logo SampaSUS fixo no topo direito */
-.sampasus-logo {{ position: fixed; top: 12px; right: 22px; z-index: 1000;
-    width: 132px; height: 81px;
-    background-image: url("data:image/png;base64,{_LOGO_B64}");
-    background-size: contain; background-repeat: no-repeat; background-position: center;
+/* Logo SampaSUS no topo do sidebar */
+section[data-testid="stSidebar"] div[data-testid="stImage"] {{ margin: 0 auto 0.4rem; }}
+section[data-testid="stSidebar"] div[data-testid="stImage"] img {{ border-radius: 10px;
     filter: drop-shadow(0 2px 6px rgba(11,36,64,0.18)); }}
-@media (max-width: 640px) {{ .sampasus-logo {{ width: 96px; height: 59px; }} }}
 </style>
-<div class="sampasus-logo"></div>
 """, unsafe_allow_html=True)
 
 def divisor():
@@ -237,8 +230,11 @@ competencias = range_competencias(ini_comp, fim_comp)
 
 
 # ============================================================
-# SIDEBAR — FILTROS (Seção 2 em diante)
+# SIDEBAR — LOGO + FILTROS (Seção 2 em diante)
 # ============================================================
+if os.path.exists(LOGO_PATH):
+    st.sidebar.image(LOGO_PATH, use_container_width=True)
+
 st.sidebar.title("🎛️ Filtros")
 st.sidebar.caption("Aplicam-se da Seção 2 em diante.")
 
